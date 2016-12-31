@@ -1,15 +1,18 @@
+var server = require('http').createServer();
 var express = require('express');
+var url = require('url');
+var WebSocketServer = require('ws').Server;
 var path = require('path');
 var favicon = require('serve-favicon');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
-
+var wss_port = 4080;
 var index = require('./routes/index');
 var game = require('./routes/game');
 
 var app = express();
-
+var wss = new WebSocketServer({ server: server });
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
@@ -21,6 +24,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
+
 
 app.use('/', index);
 app.use('/game', game);
@@ -42,5 +46,20 @@ app.use(function(err, req, res, next) {
   res.status(err.status || 500);
   res.render('error');
 });
+
+
+wss.on('connection', function (ws) {
+  var id = setInterval(function () {
+    ws.send(JSON.stringify(process.memoryUsage()), function () { /* ignore errors */ });
+  }, 5);
+  console.log('started client interval');
+  ws.on('close', function () {
+    console.log('stopping client interval');
+    clearInterval(id);
+  });
+});
+
+server.on('request', app);
+server.listen(wss_port, function () { console.log('Websocket server Listening on ' + server.address().port) });
 
 module.exports = app;
