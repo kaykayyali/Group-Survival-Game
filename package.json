@@ -1,17 +1,35 @@
 {
   "name": "groupsurvival",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "scripts": {
     "start": "node ./bin/www"
   },
   "dependencies": {
     "body-parser": "~1.15.2",
+    "bootstrap": "^3.3.7",
+    "bufferutil": "^1.3.0",
     "cookie-parser": "~1.4.3",
     "debug": "~2.2.0",
+    "ejs": "^2.5.5",
     "express": "~4.14.0",
     "jade": "~1.11.0",
     "morgan": "~1.7.0",
-    "serve-favicon": "~2.3.0"
-  }
+    "serve-favicon": "~2.3.0",
+    "utf-8-validate": "^2.0.0",
+    "ws": "^1.1.1"
+  },
+  "main": "app.js",
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kaykayyali/Group-Survival-Game.git"
+  },
+  "author": "Kaysser E Kayyali",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kaykayyali/Group-Survival-Game/issues"
+  },
+  "homepage": "https://github.com/kaykayyali/Group-Survival-Game#readme",
+  "description": ""
 }

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title><%= title %></title>
+    <link rel='stylesheet' href='/stylesheets/bootstrap.min.css' />
+    <link rel='stylesheet' href='/stylesheets/overrides.css' />
+    <script src="/javascripts/jquery-3.1.1.min.js" ></script>
+    <script src="/javascripts/js_cookie.js" ></script>
+    <script src="/javascripts/index.js" ></script>
+  </head>
+  <body class='container black-background'>
+  	<div class="col-xs-12 text-center center-page background-overlay">
+ 		<h1 class="center-block"><%= title %></h1>
+   		<div class="form-group col-xs-6 col-xs-offset-3 " id="name_input_form">
+			<label for="name_input">Enter your name</label>
+			<input type="text" class="form-control" id="name_input" placeholder="Your name..." autocomplete="off"/>
+			<br>
+			<button type="submit" class="btn btn-danger" id="enter_button">Enter</button>
+		</div>
+  	</div>
+  </body>
+</html>
