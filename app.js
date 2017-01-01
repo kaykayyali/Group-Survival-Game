@@ -7,9 +7,10 @@ var favicon = require('serve-favicon');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
-var wss_port = 4080;
+
 var index = require('./routes/index');
 var game = require('./routes/game');
+var socket_server = require('./routes/socket_server');
 
 var app = express();
 var wss = new WebSocketServer({ server: server });
@@ -28,6 +29,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/', index);
 app.use('/game', game);
+app.use('/socket_server', socket_server);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
@@ -51,7 +53,7 @@ app.use(function(err, req, res, next) {
 wss.on('connection', function (ws) {
   var id = setInterval(function () {
     ws.send(JSON.stringify(process.memoryUsage()), function () { /* ignore errors */ });
-  }, 5);
+  }, 100);
   console.log('started client interval');
   ws.on('close', function () {
     console.log('stopping client interval');
@@ -60,6 +62,6 @@ wss.on('connection', function (ws) {
 });
 
 server.on('request', app);
-server.listen(wss_port, function () { console.log('Websocket server Listening on ' + server.address().port) });
+server.listen(process.env.GAME_CLIENT_SOCKET_PORT, function () { console.log('Websocket server Listening on ' + server.address().port) });
 
 module.exports = app;
