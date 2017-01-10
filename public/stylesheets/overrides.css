@@ -1,6 +1,14 @@
 .center-page { 
 	margin-top: 25vh;
 }
+
+#game-target {
+  left: auto;
+  right: auto;
+  display: inline-block;
+  padding: 10px;
+}
+
 .background-overlay {
 	background-color: rgb(188, 188, 188);
 	border-radius: 10px;
@@ -11,6 +19,7 @@
 }
 
 .game-background {
+  margin-top: 10%;
 	min-height: 50vh;
 }
 

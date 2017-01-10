@@ -13,6 +13,12 @@ Game_Client.prototype.init = function() {
 		if (error) {
 			alert(error);
 		}
+		else {
+			Game = new Phaser.Game(800, 600, Phaser.CANVAS, 'game-target');
+			Group_Survive = new Group_Survive(Game);
+			Game.state.add('Game', Group_Survive, true);
+			self.game = Game;
+		}
 	});
 };
 
@@ -29,6 +35,7 @@ Game_Client.prototype.fetch_socket_url = function(callback) {
 };
 
 Game_Client.prototype.connect_to_socket_server = function(callback) {
+	var self = this;
 	var host = window.document.location.host.replace(/:.*/, '');
 	if (!this.socket_port) {
 		callback("Failed to find Socket Port");
@@ -42,7 +49,10 @@ Game_Client.prototype.connect_to_socket_server = function(callback) {
 		return;
 	};
 	this.socket_connection.onmessage = function (event) {
-		console.log(event);
+		console.log("NEW EVENT", event);
+		if (Group_Survive) {
+			Group_Survive.display_new_message(event);
+		}
 		return;
 	};
 	this.socket_connection.onclose = function(event) {
