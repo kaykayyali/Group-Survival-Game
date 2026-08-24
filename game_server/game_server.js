@@ -32,6 +32,91 @@ var MELEE_KNOCKBACK = 60;
 
 var WAVE_INTERMISSION_MS = 6000;
 
+var PLAYER_RADIUS = 14;
+
+// The horde is not one shape: walkers shamble in mass, runners sprint and
+// terrify, crawlers drag themselves low and get underfoot.
+var ZOMBIE_KINDS = {
+    walker:  { speed_min: 40, speed_max: 58,  hp_base: 100, hp_per_wave: 10, damage: 10, attack_range: 30, radius: 13 },
+    runner:  { speed_min: 100, speed_max: 130, hp_base: 55, hp_per_wave: 6,  damage: 8,  attack_range: 28, radius: 11 },
+    crawler: { speed_min: 30, speed_max: 44,  hp_base: 40,  hp_per_wave: 5,  damage: 6,  attack_range: 24, radius: 9 }
+};
+
+// A ruined crossroads. Roads are for the clients to paint; obstacles are
+// solid — players, zombies and arrows all collide with them server-side.
+var MAP_ROADS = [
+    { x: 0, y: 540, w: 1600, h: 160 },
+    { x: 720, y: 0, w: 160, h: 1200 }
+];
+var MAP_OBSTACLES = [
+    // Buildings, four decayed blocks around the intersection.
+    { x: 80, y: 80, w: 280, h: 200, kind: 'building' },
+    { x: 440, y: 60, w: 220, h: 160, kind: 'building' },
+    { x: 120, y: 340, w: 180, h: 140, kind: 'building' },
+    { x: 420, y: 300, w: 240, h: 180, kind: 'building' },
+    { x: 960, y: 90, w: 260, h: 180, kind: 'building' },
+    { x: 1290, y: 70, w: 230, h: 200, kind: 'building' },
+    { x: 1000, y: 330, w: 200, h: 150, kind: 'building' },
+    { x: 1280, y: 340, w: 240, h: 160, kind: 'building' },
+    { x: 90, y: 760, w: 240, h: 180, kind: 'building' },
+    { x: 420, y: 780, w: 220, h: 160, kind: 'building' },
+    { x: 120, y: 1000, w: 200, h: 130, kind: 'building' },
+    { x: 430, y: 1000, w: 230, h: 140, kind: 'building' },
+    { x: 980, y: 760, w: 250, h: 170, kind: 'building' },
+    { x: 1300, y: 740, w: 220, h: 190, kind: 'building' },
+    { x: 1010, y: 1000, w: 210, h: 130, kind: 'building' },
+    { x: 1300, y: 1000, w: 220, h: 130, kind: 'building' },
+    // Dead vehicles abandoned on the roads.
+    { x: 565, y: 588, w: 78, h: 36, kind: 'car' },
+    { x: 1024, y: 612, w: 78, h: 36, kind: 'car' },
+    { x: 300, y: 634, w: 80, h: 34, kind: 'car' },
+    { x: 1272, y: 566, w: 118, h: 38, kind: 'bus' },
+    { x: 762, y: 284, w: 40, h: 82, kind: 'car_v' },
+    { x: 788, y: 872, w: 42, h: 88, kind: 'van_v' },
+    // Alley dumpsters.
+    { x: 672, y: 150, w: 40, h: 26, kind: 'dumpster' },
+    { x: 918, y: 250, w: 40, h: 26, kind: 'dumpster' },
+    { x: 672, y: 940, w: 40, h: 26, kind: 'dumpster' },
+    { x: 930, y: 1035, w: 40, h: 26, kind: 'dumpster' }
+];
+
+// Push a circle out of every solid rect (slides along faces).
+function collide_circle_obstacles(x, y, radius) {
+    for (var i = 0; i < MAP_OBSTACLES.length; i++) {
+        var o = MAP_OBSTACLES[i];
+        var nearest_x = clamp(x, o.x, o.x + o.w);
+        var nearest_y = clamp(y, o.y, o.y + o.h);
+        var dx = x - nearest_x;
+        var dy = y - nearest_y;
+        var d2 = dx * dx + dy * dy;
+        if (d2 >= radius * radius) { continue; }
+        if (d2 > 0.0001) {
+            var d = Math.sqrt(d2);
+            x = nearest_x + (dx / d) * radius;
+            y = nearest_y + (dy / d) * radius;
+        }
+        else {
+            // Center inside the rect: exit through the nearest face.
+            var left = x - o.x, right = o.x + o.w - x;
+            var top = y - o.y, bottom = o.y + o.h - y;
+            var m = Math.min(left, right, top, bottom);
+            if (m === left) { x = o.x - radius; }
+            else if (m === right) { x = o.x + o.w + radius; }
+            else if (m === top) { y = o.y - radius; }
+            else { y = o.y + o.h + radius; }
+        }
+    }
+    return { x: x, y: y };
+}
+
+function point_blocked(x, y) {
+    for (var i = 0; i < MAP_OBSTACLES.length; i++) {
+        var o = MAP_OBSTACLES[i];
+        if (x >= o.x && x <= o.x + o.w && y >= o.y && y <= o.y + o.h) { return true; }
+    }
+    return false;
+}
+
 function Game_Server() {
     this.players = {}; // id -> player
     this.zombies = {}; // id -> zombie
@@ -43,6 +128,8 @@ function Game_Server() {
     this.intermission_until = Date.now() + WAVE_INTERMISSION_MS;
     this.spawn_accumulator = 0;
     this.events = [];
+    this.deaths = []; // gore feed: where zombies fell this snapshot, for corpse decals
+    this.hits = [];   // gore feed: non-fatal wounds this snapshot, for blood decals
     this.sockets = {}; // id -> ws
 }
 
@@ -107,8 +194,9 @@ Game_Server.prototype.handle_message = function(id, message) {
                     target_x = player.x + dx * scale;
                     target_y = player.y + dy * scale;
                 }
-                player.x = target_x;
-                player.y = target_y;
+                var resolved = collide_circle_obstacles(target_x, target_y, PLAYER_RADIUS);
+                player.x = resolved.x;
+                player.y = resolved.y;
                 player.rotation = Number(message.rotation) || 0;
             }
             break;
@@ -144,7 +232,8 @@ Game_Server.prototype.spawn_player = function(id, name) {
         ws.send(JSON.stringify({
             type: 'welcome',
             id: id,
-            world: { width: WORLD_WIDTH, height: WORLD_HEIGHT }
+            world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
+            map: { roads: MAP_ROADS, obstacles: MAP_OBSTACLES }
         }));
     }
 };
@@ -179,8 +268,12 @@ Game_Server.prototype.player_melee = function(player) {
         var dy = zombie.y - player.y;
         if (dx * dx + dy * dy <= MELEE_RANGE * MELEE_RANGE) {
             var dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            zombie.x = clamp(zombie.x + (dx / dist) * MELEE_KNOCKBACK, 0, WORLD_WIDTH);
-            zombie.y = clamp(zombie.y + (dy / dist) * MELEE_KNOCKBACK, 0, WORLD_HEIGHT);
+            var kicked = collide_circle_obstacles(
+                clamp(zombie.x + (dx / dist) * MELEE_KNOCKBACK, 0, WORLD_WIDTH),
+                clamp(zombie.y + (dy / dist) * MELEE_KNOCKBACK, 0, WORLD_HEIGHT),
+                zombie.radius || 12);
+            zombie.x = kicked.x;
+            zombie.y = kicked.y;
             this.damage_zombie(zombie, MELEE_DAMAGE, player);
         }
     }
@@ -190,14 +283,27 @@ Game_Server.prototype.damage_zombie = function(zombie, amount, player) {
     zombie.hp -= amount;
     if (zombie.hp <= 0) {
         delete this.zombies[zombie.id];
+        // The kill leaves a mark on the world: clients stamp a persistent
+        // corpse and blood pool where it dropped.
+        if (this.deaths.length < 40) {
+            this.deaths.push({ x: Math.round(zombie.x), y: Math.round(zombie.y), kind: zombie.kind || 'walker' });
+        }
         this.events.push(player.name + ' put one down.');
         if (Math.random() < 0.25) {
             this.spawn_pickup(zombie.x, zombie.y);
         }
     }
+    else if (this.hits.length < 40) {
+        this.hits.push({ x: Math.round(zombie.x), y: Math.round(zombie.y) });
+    }
 };
 
 Game_Server.prototype.spawn_pickup = function(x, y) {
+    // Keep supplies out of the buildings and wrecks.
+    for (var tries = 0; tries < 25 && point_blocked(x, y); tries++) {
+        x = 80 + Math.random() * (WORLD_WIDTH - 160);
+        y = 80 + Math.random() * (WORLD_HEIGHT - 160);
+    }
     var id = 'k' + (this.next_id++);
     this.pickups[id] = {
         id: id,
@@ -209,7 +315,8 @@ Game_Server.prototype.spawn_pickup = function(x, y) {
 
 Game_Server.prototype.start_wave = function() {
     this.wave += 1;
-    this.zombies_to_spawn = 4 + this.wave * 3;
+    // Horde density: enough bodies that the streets fill up.
+    this.zombies_to_spawn = 8 + this.wave * 5;
     this.events.push('Wave ' + this.wave + ' — they are coming...');
     // Fallen survivors get back up between waves.
     for (var id in this.players) {
@@ -226,24 +333,56 @@ Game_Server.prototype.start_wave = function() {
     this.spawn_pickup(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT);
 };
 
+Game_Server.prototype.pick_zombie_kind = function() {
+    // Wave 1 is all shamblers; runners and crawlers thicken the mix later.
+    var runner_chance = this.wave >= 2 ? Math.min(0.32, 0.06 + this.wave * 0.04) : 0;
+    var crawler_chance = this.wave >= 2 ? 0.18 : 0.10;
+    var roll = Math.random();
+    if (roll < runner_chance) { return 'runner'; }
+    if (roll < runner_chance + crawler_chance) { return 'crawler'; }
+    return 'walker';
+};
+
 Game_Server.prototype.spawn_zombie = function() {
     var id = 'z' + (this.next_id++);
-    // Spawn on a random edge of the world so the horde closes in.
+    // Spawn on a random edge of the world so the horde closes in. Bias
+    // most spawns toward the stretch of edge nearest a survivor so the
+    // mass is seen approaching, not just eventually arriving.
     var edge = Math.floor(Math.random() * 4);
     var x = Math.random() * WORLD_WIDTH;
     var y = Math.random() * WORLD_HEIGHT;
+    var alive_players = [];
+    for (var pid in this.players) {
+        if (this.players[pid].alive) { alive_players.push(this.players[pid]); }
+    }
+    if (alive_players.length > 0 && Math.random() < 0.65) {
+        var mark = alive_players[Math.floor(Math.random() * alive_players.length)];
+        x = clamp(mark.x + (Math.random() - 0.5) * 700, 0, WORLD_WIDTH);
+        y = clamp(mark.y + (Math.random() - 0.5) * 700, 0, WORLD_HEIGHT);
+        // Snap to the nearest edge from that point.
+        var d_left = x, d_right = WORLD_WIDTH - x, d_top = y, d_bottom = WORLD_HEIGHT - y;
+        var m = Math.min(d_left, d_right, d_top, d_bottom);
+        if (m === d_left) { edge = 2; } else if (m === d_right) { edge = 3; }
+        else if (m === d_top) { edge = 0; } else { edge = 1; }
+    }
     if (edge === 0) { y = 0; }
     if (edge === 1) { y = WORLD_HEIGHT; }
     if (edge === 2) { x = 0; }
     if (edge === 3) { x = WORLD_WIDTH; }
-    var max_hp = ZOMBIE_BASE_HP + (this.wave - 1) * 10;
+    var kind = this.pick_zombie_kind();
+    var stats = ZOMBIE_KINDS[kind];
+    var max_hp = stats.hp_base + (this.wave - 1) * stats.hp_per_wave;
     this.zombies[id] = {
         id: id,
+        kind: kind,
         x: x,
         y: y,
         hp: max_hp,
         max_hp: max_hp,
-        speed: ZOMBIE_SPEED_MIN + Math.random() * (ZOMBIE_SPEED_MAX - ZOMBIE_SPEED_MIN),
+        speed: stats.speed_min + Math.random() * (stats.speed_max - stats.speed_min),
+        damage: stats.damage,
+        attack_range: stats.attack_range,
+        radius: stats.radius,
         last_attack: 0
     };
 };
@@ -285,8 +424,8 @@ Game_Server.prototype.tick = function(dt) {
         }
         else if (this.zombies_to_spawn > 0) {
             this.spawn_accumulator += dt;
-            // Trickle the horde in rather than dumping it at once.
-            if (this.spawn_accumulator >= 0.7) {
+            // Pour the horde in fast enough that it masses up on screen.
+            if (this.spawn_accumulator >= 0.28) {
                 this.spawn_accumulator = 0;
                 this.spawn_zombie();
                 this.zombies_to_spawn -= 1;
@@ -317,18 +456,51 @@ Game_Server.prototype.tick_zombies = function(dt, now) {
         }
         if (!target) { continue; }
         var dist = Math.sqrt(best) || 1;
-        if (dist > ZOMBIE_ATTACK_RANGE) {
-            zombie.x += ((target.x - zombie.x) / dist) * zombie.speed * dt;
-            zombie.y += ((target.y - zombie.y) / dist) * zombie.speed * dt;
+        var range = zombie.attack_range || ZOMBIE_ATTACK_RANGE;
+        var radius = zombie.radius || 12;
+        if (dist > range) {
+            // Move axis-separated against the obstacles so the horde slides
+            // along walls and pours down the streets instead of sticking.
+            var step_x = ((target.x - zombie.x) / dist) * zombie.speed * dt;
+            var step_y = ((target.y - zombie.y) / dist) * zombie.speed * dt;
+            var pos = collide_circle_obstacles(zombie.x + step_x, zombie.y, radius);
+            pos = collide_circle_obstacles(pos.x, pos.y + step_y, radius);
+            zombie.x = clamp(pos.x, 0, WORLD_WIDTH);
+            zombie.y = clamp(pos.y, 0, WORLD_HEIGHT);
         }
         else if (now - zombie.last_attack >= ZOMBIE_ATTACK_COOLDOWN_MS) {
             zombie.last_attack = now;
-            target.hp -= ZOMBIE_DAMAGE;
+            target.hp -= (zombie.damage || ZOMBIE_DAMAGE);
             if (target.hp <= 0) {
                 target.hp = 0;
                 target.alive = false;
                 this.events.push(target.name + ' was overwhelmed by the horde.');
             }
+        }
+    }
+    this.separate_zombies();
+};
+
+Game_Server.prototype.separate_zombies = function() {
+    // Light body separation: the horde reads as a crowd of individuals,
+    // not a stack of markers on one point.
+    var list = [];
+    for (var id in this.zombies) { list.push(this.zombies[id]); }
+    for (var i = 0; i < list.length; i++) {
+        for (var j = i + 1; j < list.length; j++) {
+            var a = list[i], b = list[j];
+            var dx = b.x - a.x;
+            var dy = b.y - a.y;
+            var min_dist = (a.radius || 12) + (b.radius || 12) - 2;
+            var d2 = dx * dx + dy * dy;
+            if (d2 >= min_dist * min_dist || d2 === 0) { continue; }
+            var d = Math.sqrt(d2);
+            var push = (min_dist - d) / 2;
+            var ux = dx / d, uy = dy / d;
+            a.x = clamp(a.x - ux * push, 0, WORLD_WIDTH);
+            a.y = clamp(a.y - uy * push, 0, WORLD_HEIGHT);
+            b.x = clamp(b.x + ux * push, 0, WORLD_WIDTH);
+            b.y = clamp(b.y + uy * push, 0, WORLD_HEIGHT);
         }
     }
 };
@@ -340,7 +512,9 @@ Game_Server.prototype.tick_projectiles = function(dt, now) {
         projectile.y += projectile.vy * dt;
         if (now >= projectile.expires ||
             projectile.x < 0 || projectile.x > WORLD_WIDTH ||
-            projectile.y < 0 || projectile.y > WORLD_HEIGHT) {
+            projectile.y < 0 || projectile.y > WORLD_HEIGHT ||
+            point_blocked(projectile.x, projectile.y)) {
+            // Walls and wrecks stop arrows dead.
             delete this.projectiles[id];
             continue;
         }
@@ -394,7 +568,7 @@ Game_Server.prototype.build_snapshot = function() {
     var zombies = [];
     for (var zid in this.zombies) {
         var z = this.zombies[zid];
-        zombies.push({ id: z.id, x: Math.round(z.x), y: Math.round(z.y), hp: z.hp, max_hp: z.max_hp });
+        zombies.push({ id: z.id, x: Math.round(z.x), y: Math.round(z.y), hp: z.hp, max_hp: z.max_hp, kind: z.kind || 'walker' });
     }
     var projectiles = [];
     for (var aid in this.projectiles) {
@@ -417,7 +591,9 @@ Game_Server.prototype.build_snapshot = function() {
             remaining: zombies.length + this.zombies_to_spawn,
             intermission: this.intermission_until ? Math.max(0, this.intermission_until - Date.now()) : 0
         },
-        events: this.events.splice(0, this.events.length)
+        events: this.events.splice(0, this.events.length),
+        deaths: this.deaths.splice(0, this.deaths.length),
+        hits: this.hits.splice(0, this.hits.length)
     };
     return snapshot;
 };
@@ -425,6 +601,8 @@ Game_Server.prototype.build_snapshot = function() {
 Game_Server.prototype.broadcast_snapshot = function() {
     if (Object.keys(this.sockets).length === 0) {
         this.events.length = 0;
+        this.deaths.length = 0;
+        this.hits.length = 0;
         return;
     }
     var payload = JSON.stringify(this.build_snapshot());

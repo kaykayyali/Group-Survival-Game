@@ -2,6 +2,7 @@ var Game_Client = function(options) {
 	Fast_Bindall(this);
 	this.player_id = null;
 	this.world = { width: 1600, height: 1200 };
+	this.map = null;
 	this.latest_snapshot = null;
 };
 
@@ -56,6 +57,7 @@ Game_Client.prototype.handle_message = function(message) {
 	if (message.type === 'welcome') {
 		this.player_id = message.id;
 		this.world = message.world;
+		this.map = message.map || null;
 	}
 	else if (message.type === 'snapshot') {
 		this.latest_snapshot = message;

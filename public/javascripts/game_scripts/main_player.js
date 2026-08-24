@@ -47,6 +47,15 @@ Main_Player.prototype.update = function() {
     if (!this.alive) {
         return;
     }
+    // Mirror the server's obstacle collision so prediction matches
+    // authority: physics has already integrated this frame's motion,
+    // push the sprite back out of any building or wreck.
+    var map = this.client.map;
+    if (map && map.obstacles) {
+        var resolved = resolve_map_circle(map.obstacles, this.sprite.x, this.sprite.y, 14);
+        this.sprite.x = resolved.x;
+        this.sprite.y = resolved.y;
+    }
     var speed = 220;
     var vx = 0;
     var vy = 0;
@@ -84,3 +93,32 @@ Main_Player.prototype.update = function() {
         });
     }
 };
+
+// Same shape as the server's collide_circle_obstacles: push a circle out
+// of every solid rect, sliding along faces.
+function resolve_map_circle(obstacles, x, y, radius) {
+    for (var i = 0; i < obstacles.length; i++) {
+        var o = obstacles[i];
+        var nearest_x = Math.max(o.x, Math.min(x, o.x + o.w));
+        var nearest_y = Math.max(o.y, Math.min(y, o.y + o.h));
+        var dx = x - nearest_x;
+        var dy = y - nearest_y;
+        var d2 = dx * dx + dy * dy;
+        if (d2 >= radius * radius) { continue; }
+        if (d2 > 0.0001) {
+            var d = Math.sqrt(d2);
+            x = nearest_x + (dx / d) * radius;
+            y = nearest_y + (dy / d) * radius;
+        }
+        else {
+            var left = x - o.x, right = o.x + o.w - x;
+            var top = y - o.y, bottom = o.y + o.h - y;
+            var m = Math.min(left, right, top, bottom);
+            if (m === left) { x = o.x - radius; }
+            else if (m === right) { x = o.x + o.w + radius; }
+            else if (m === top) { y = o.y - radius; }
+            else { y = o.y + o.h + radius; }
+        }
+    }
+    return { x: x, y: y };
+}
