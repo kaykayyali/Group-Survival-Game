@@ -1,10 +1,32 @@
 # The Bar: No More Room in Hell — Survival mode
 
-This is the reference the gauntlet loop judges against. Every claim below was
-fetched from published sources describing the real game (network egress in the
-build environment blocks image hosts, so the bar is pinned as this sourced
-written specification; critics judge against it directly and are instructed
-that a tie or a doubt is a loss for our game).
+This is the reference the gauntlet loop judges against. The bar exists in two
+forms: **five real NMRiH screenshots supplied by the project owner** (pinned
+locally for the critics; not committed — they are the game's copyrighted
+material), and the sourced written specification below. Critics view the
+actual screenshots side by side with ours and are instructed that a tie or a
+doubt is a loss for our game.
+
+The pinned reference screenshots (what each shows):
+
+1. `nmrih_mall_wave_hud.jpg` — Survival-mode HUD in play: small serif-styled
+   top-left readout (WAVE 4 / REMAINING 7 / ZONE A: 85% / ZONE B: 55%), no
+   crosshair, scoped rifle at hip, blood burst on a hit zombie mid-corridor,
+   a corpse on the tile floor, shuttered mall storefronts, grime and posters.
+2. `nmrih_street_lanterns_dark.jpg` — night street: near-total darkness with
+   a string of paper lanterns and lit windows as the only color; zombies read
+   as silhouettes; an abandoned humvee; signage ("SUPER TELEVISION") barely
+   catching light.
+3. `nmrih_zombies_closeup_fire.jpg` — zombies up close: pale skin, bloodied
+   mouths, white blank eyes; a burning barrel behind; sandbag emplacement,
+   floodlight, RESTRICTED AREA sign, a wall of missing-person posters.
+4. `nmrih_melee_fists.jpg` — first-person bare-fist melee against a zombie in
+   a dim mall; shop sign ("CRAFTS & FABRICS"); the frame is dark at the
+   edges, desaturated, no UI at all.
+5. `nmrih_rain_muzzleflash_horde.jpg` — rain-slick street at night: iron
+   sights mid-shot with muzzle flash and an ejected casing frozen in air; a
+   horde approaching through fog; streetlight cones in the rain; a tank and
+   dead cars; neon MARKET sign in the distance.
 
 Sources: the game's Steam page and official manual, wiki.nomoreroominhell.com,
 the NMRiH Fandom wiki (Official GameModes), Wikipedia, TV Tropes, and
