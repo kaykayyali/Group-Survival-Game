@@ -27,6 +27,10 @@ The pinned reference screenshots (what each shows):
    sights mid-shot with muzzle flash and an ejected casing frozen in air; a
    horde approaching through fog; streetlight cones in the rain; a tank and
    dead cars; neon MARKET sign in the distance.
+6. `nmrih_axe_alley.jpg` — first-person fire axe, blade and hands caked in
+   blood; a cramped brick alley strewn with garbage under cold blue
+   moonlight; two zombies closing in mid-frame; walls layered with torn
+   posters, graffiti and blood spray — melee as a desperate, dirty act.
 
 Sources: the game's Steam page and official manual, wiki.nomoreroominhell.com,
 the NMRiH Fandom wiki (Official GameModes), Wikipedia, TV Tropes, and
