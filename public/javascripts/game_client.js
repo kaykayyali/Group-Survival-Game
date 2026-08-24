@@ -10,7 +10,6 @@ Game_Client.prototype.init = function() {
 	var self = this;
 	console.log("Loading...");
 	async.series([
-		self.fetch_socket_url,
 		self.connect_to_socket_server
 	], function(error) {
 		if (error) {
@@ -25,27 +24,13 @@ Game_Client.prototype.init = function() {
 	});
 };
 
-Game_Client.prototype.fetch_socket_url = function(callback) {
-	var self = this;
-	$.get('/socket_server', function(data) {
-		self.socket_port = data.socket_port;
-		callback();
-	})
-	.fail(function() {
-		callback("Failed to retrieve Socket Port");
-	});
-};
-
 Game_Client.prototype.connect_to_socket_server = function(callback) {
 	var self = this;
-	var host = window.document.location.host.replace(/:.*/, '');
-	var port = window.document.location.port || this.socket_port;
-	if (!port) {
-		callback("Failed to find Socket Port");
-		return;
-	}
+	// The WebSocket server shares the HTTP server, so connect straight to
+	// the page's own origin (host already includes the port when non-default,
+	// and works unchanged behind a reverse proxy).
 	var protocol = window.document.location.protocol === 'https:' ? 'wss://' : 'ws://';
-	this.socket_connection = new WebSocket(protocol + host + ':' + port);
+	this.socket_connection = new WebSocket(protocol + window.document.location.host);
 	this.socket_connection.onopen = function (event) {
 		console.log("Web Socket Connection Established.");
 		self.send({ type: 'join', name: Cookies.get('user-name') || 'Survivor' });

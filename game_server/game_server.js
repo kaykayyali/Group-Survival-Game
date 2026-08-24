@@ -11,6 +11,7 @@ var SNAPSHOT_MS = 66; // ~15Hz broadcast
 
 var PLAYER_MAX_HP = 100;
 var PLAYER_START_AMMO = 15;
+var PLAYER_SPEED = 220;
 
 var ZOMBIE_BASE_HP = 100;
 var ZOMBIE_SPEED_MIN = 45;
@@ -63,6 +64,9 @@ Game_Server.prototype.handle_connection = function(ws) {
         } catch (e) {
             return;
         }
+        if (!message || typeof message !== 'object') {
+            return;
+        }
         self.handle_message(id, message);
     });
 
@@ -86,8 +90,25 @@ Game_Server.prototype.handle_message = function(id, message) {
             break;
         case 'move':
             if (player && player.alive) {
-                player.x = clamp(Number(message.x) || 0, 0, WORLD_WIDTH);
-                player.y = clamp(Number(message.y) || 0, 0, WORLD_HEIGHT);
+                var now = Date.now();
+                var dt = Math.min(0.5, (now - (player.last_move_time || now)) / 1000);
+                player.last_move_time = now;
+                // Movement stays server-validated: cap displacement to what the
+                // player speed allows for the elapsed time (with a little slack
+                // for network jitter).
+                var max_step = Math.max(20, PLAYER_SPEED * dt * 1.5);
+                var target_x = clamp(Number(message.x) || 0, 0, WORLD_WIDTH);
+                var target_y = clamp(Number(message.y) || 0, 0, WORLD_HEIGHT);
+                var dx = target_x - player.x;
+                var dy = target_y - player.y;
+                var dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > max_step) {
+                    var scale = max_step / dist;
+                    target_x = player.x + dx * scale;
+                    target_y = player.y + dy * scale;
+                }
+                player.x = target_x;
+                player.y = target_y;
                 player.rotation = Number(message.rotation) || 0;
             }
             break;
@@ -234,6 +255,22 @@ Game_Server.prototype.tick = function(dt) {
     // Wave management: only run the horde while someone is playing.
     if (player_count > 0) {
         var zombies_alive = Object.keys(this.zombies).length;
+
+        // Group wipe: nobody left alive to fight. Clear the horde and replay
+        // the wave after an intermission (start_wave revives everyone).
+        var anyone_alive = false;
+        for (var wid in this.players) {
+            if (this.players[wid].alive) { anyone_alive = true; break; }
+        }
+        if (!anyone_alive && (zombies_alive > 0 || this.zombies_to_spawn > 0)) {
+            this.zombies = {};
+            this.projectiles = {};
+            this.zombies_to_spawn = 0;
+            zombies_alive = 0;
+            this.wave = Math.max(0, this.wave - 1);
+            this.intermission_until = now + WAVE_INTERMISSION_MS;
+            this.events.push('The whole group went down. The horde moves on... try that wave again.');
+        }
         if (this.zombies_to_spawn === 0 && zombies_alive === 0) {
             if (!this.intermission_until) {
                 this.intermission_until = now + WAVE_INTERMISSION_MS;
