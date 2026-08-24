@@ -1,74 +1,86 @@
-Main_Player = function () {
+/*
+ * Local player: WASD / arrow-key movement, aim with the mouse, left click
+ * or spacebar to shoot, F to melee shove. Movement is client-side and
+ * reported to the server; health/ammo/alive come back from the server.
+ */
+Main_Player = function (game, client) {
     Fast_Bindall(this);
-    console.log("CREATED A NEW PLAYER");
-    //  Creates 30 bullets, using the 'bullet' graphic
+    this.game = game;
+    this.client = client;
+    this.alive = true;
+    this.last_shot = 0;
+    this.last_melee_sent = 0;
+    this.last_sent = 0;
 
-    this.weapon = Game.add.weapon(1, 'arrow');
-
-    //  The bullet will be automatically killed when it leaves the world bounds
-
-    this.weapon.bulletKillType = Phaser.Weapon.KILL_WORLD_BOUNDS;
-
-    //  The speed at which the bullet is fired
-
-    this.weapon.bulletSpeed = 600;
-
-    //  Speed-up the rate of fire, allowing them to shoot 1 bullet every 60ms
-
-    this.weapon.fireRate = 100;
-
-    this.sprite = Game.add.sprite(50, 400, 'bow');
-
+    this.sprite = game.add.sprite(client.world.width / 2, client.world.height / 2, 'bow');
     this.sprite.anchor.set(0.5);
 
-    Game.physics.arcade.enable(this.sprite);
+    game.physics.arcade.enable(this.sprite);
+    this.sprite.body.collideWorldBounds = true;
+    this.sprite.body.maxVelocity.set(220);
 
-    this.sprite.body.drag.set(70);
+    this.cursors = game.input.keyboard.createCursorKeys();
+    this.keys = game.input.keyboard.addKeys({
+        up: Phaser.KeyCode.W,
+        down: Phaser.KeyCode.S,
+        left: Phaser.KeyCode.A,
+        right: Phaser.KeyCode.D,
+        fire: Phaser.KeyCode.SPACEBAR,
+        melee: Phaser.KeyCode.F
+    });
+    game.input.keyboard.addKeyCapture([
+        Phaser.KeyCode.W, Phaser.KeyCode.S, Phaser.KeyCode.A, Phaser.KeyCode.D,
+        Phaser.KeyCode.SPACEBAR, Phaser.KeyCode.F,
+        Phaser.KeyCode.UP, Phaser.KeyCode.DOWN, Phaser.KeyCode.LEFT, Phaser.KeyCode.RIGHT
+    ]);
+};
 
-    this.sprite.body.maxVelocity.set(200);
-
-    //  Tell the this.Weapon to track the 'player' Sprite
-
-    //  With no offsets from the position
-
-    //  But the 'true' argument tells the this.weapon to track this.sprite rotation
-
-    this.weapon.trackSprite(this.sprite, 0, 0, true);
-
-    this.cursors = Game.input.keyboard.createCursorKeys();
-
-    this.fireButton = Game.input.keyboard.addKey(Phaser.KeyCode.SPACEBAR);
+Main_Player.prototype.apply_server_state = function(state) {
+    this.alive = state.alive;
+    this.sprite.visible = state.alive;
+    if (!state.alive) {
+        this.sprite.body.velocity.set(0);
+    }
 };
 
 Main_Player.prototype.update = function() {
-    if (this.cursors.up.isDown)
-    {
-        Game.physics.arcade.accelerationFromRotation(this.sprite.rotation, 300, this.sprite.body.acceleration);
+    if (!this.alive) {
+        return;
     }
-    else
-    {
-        this.sprite.body.acceleration.set(0);
+    var speed = 220;
+    var vx = 0;
+    var vy = 0;
+    if (this.cursors.up.isDown || this.keys.up.isDown) { vy = -speed; }
+    if (this.cursors.down.isDown || this.keys.down.isDown) { vy = speed; }
+    if (this.cursors.left.isDown || this.keys.left.isDown) { vx = -speed; }
+    if (this.cursors.right.isDown || this.keys.right.isDown) { vx = speed; }
+    this.sprite.body.velocity.set(vx, vy);
+
+    // Aim at the mouse pointer.
+    var pointer = this.game.input.activePointer;
+    this.sprite.rotation = Math.atan2(
+        pointer.worldY - this.sprite.y,
+        pointer.worldX - this.sprite.x
+    );
+
+    var now = this.game.time.now;
+    if ((this.keys.fire.isDown || pointer.leftButton.isDown) && now - this.last_shot > 250) {
+        this.last_shot = now;
+        this.client.send({ type: 'shoot' });
+    }
+    if (this.keys.melee.isDown && now - this.last_melee_sent > 400) {
+        this.last_melee_sent = now;
+        this.client.send({ type: 'melee' });
     }
 
-    if (this.cursors.left.isDown)
-    {
-        this.sprite.body.angularVelocity = -300;
+    // Report position ~20 times a second.
+    if (now - this.last_sent > 50) {
+        this.last_sent = now;
+        this.client.send({
+            type: 'move',
+            x: this.sprite.x,
+            y: this.sprite.y,
+            rotation: this.sprite.rotation
+        });
     }
-    else if (this.cursors.right.isDown)
-    {
-        this.sprite.body.angularVelocity = 300;
-    }
-    else
-    {
-        this.sprite.body.angularVelocity = 0;
-    }
-
-    if (this.fireButton.isDown)
-    {
-        this.weapon.fire();
-    }
-
-    Game.world.wrap(this.sprite, 16);
 };
-
-module.exports = Main_Player;

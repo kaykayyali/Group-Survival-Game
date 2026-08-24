@@ -1,0 +1,46 @@
+# Group Survival
+
+A top-down co-op zombie wave-survival game, inspired by the pillars of
+*No More Room in Hell*: a relentless horde that closes in from every
+direction, scarce ammo, a melee fallback, and survivors who live or die
+as a group.
+
+## How to play
+
+```
+npm install
+npm start          # serves on http://localhost:3000 (PORT to override)
+```
+
+Open `http://localhost:3000`, enter a name, and you're in. Open more
+browser windows for co-op — everyone shares one world.
+
+- **Move**: WASD or arrow keys
+- **Aim**: mouse
+- **Shoot**: left click or spacebar (arrows are scarce — count your shots)
+- **Melee shove**: F (always available, knocks zombies back)
+- Zombies drop **ammo** (yellow) and **health** (red cross) pickups
+- Go down and the horde won't stop — your group revives you at the next wave
+- Each wave is bigger and tougher than the last. There is no winning, only surviving.
+
+## Architecture
+
+- `app.js` — Express + WebSocket server on a single port
+- `game_server/game_server.js` — authoritative simulation: waves, zombie AI,
+  projectiles, melee, pickups, player health. Ticks at 20Hz, broadcasts
+  snapshots at ~15Hz.
+- `public/javascripts/game_client.js` — WebSocket client / message layer
+- `public/javascripts/game_scripts/` — Phaser 2 rendering state and local
+  player input (client-predicted movement, server-owned everything else)
+
+## Gauntlet test
+
+`test/gauntlet.js` is an automated two-player playtest run with headless
+Chromium: it joins two clients, verifies co-op sync, movement replication,
+wave spawning, shooting/ammo scarcity, kills, zombie damage, HUD, and the
+event feed, and fails on any client-side JS error.
+
+```
+npm start &
+CHROME_PATH=/path/to/chromium node test/gauntlet.js
+```

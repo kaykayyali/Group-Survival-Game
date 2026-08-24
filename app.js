@@ -1,9 +1,7 @@
 var server = require('http').createServer();
 var express = require('express');
-var url = require('url');
 var WebSocketServer = require('ws').Server;
 var path = require('path');
-var favicon = require('serve-favicon');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
@@ -11,6 +9,7 @@ var bodyParser = require('body-parser');
 var index = require('./routes/index');
 var game = require('./routes/game');
 var socket_server = require('./routes/socket_server');
+var Game_Server = require('./game_server/game_server');
 
 var app = express();
 var wss = new WebSocketServer({ server: server });
@@ -18,14 +17,14 @@ var wss = new WebSocketServer({ server: server });
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
 
-// uncomment after placing your favicon in /public
-//app.use(favicon(path.join(__dirname, 'public', 'favicon.ico')));
 app.use(logger('dev'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
+
+app.get('/favicon.ico', function(req, res) { res.status(204).end(); });
 
 app.use('/', index);
 app.use('/game', game);
@@ -49,19 +48,15 @@ app.use(function(err, req, res, next) {
   res.render('error');
 });
 
+var game_server = new Game_Server();
+game_server.start();
 
 wss.on('connection', function (ws) {
-  var id = setInterval(function () {
-    ws.send(JSON.stringify(process.memoryUsage()), function () { /* ignore errors */ });
-  }, 1000);
-  console.log('started client interval');
-  ws.on('close', function () {
-    console.log('stopping client interval');
-    clearInterval(id);
-  });
+  game_server.handle_connection(ws);
 });
 
+var port = process.env.PORT || process.env.GAME_CLIENT_SOCKET_PORT || 3000;
 server.on('request', app);
-server.listen(process.env.GAME_CLIENT_SOCKET_PORT, function () { console.log('Websocket server Listening on ' + server.address().port) });
+server.listen(port, function () { console.log('Group Survival listening on ' + server.address().port) });
 
 module.exports = app;
