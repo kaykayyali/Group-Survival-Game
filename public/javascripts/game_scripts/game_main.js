@@ -41,6 +41,49 @@ Group_Survive_State.prototype = {
         // Everything but the bow/arrow art is generated at runtime.
         this.create_zombie_sheets();
 
+        // The survivor: a person holding a bow, not a floating weapon.
+        // Top-down, facing +x, ~36px — reads as a body among the horde's
+        // bodies. Registered in the cache so Main_Player can use the key.
+        var surv = this.game.make.bitmapData(40, 36);
+        var sctx = surv.context;
+        sctx.save();
+        sctx.translate(20, 18);
+        // Ground shadow.
+        sctx.fillStyle = 'rgba(0,0,0,0.4)';
+        sctx.beginPath(); sctx.arc(1, 2, 9, 0, Math.PI * 2); sctx.fill();
+        // Shoulders / jacket (worn olive-grey).
+        sctx.fillStyle = '#4a4f45';
+        sctx.beginPath();
+        sctx.ellipse ? sctx.ellipse(-1, 0, 8, 6.5, 0, 0, Math.PI * 2) : sctx.arc(-1, 0, 7, 0, Math.PI * 2);
+        sctx.fill();
+        // Arms reaching forward to the bow.
+        sctx.strokeStyle = '#414639';
+        sctx.lineWidth = 3;
+        sctx.lineCap = 'round';
+        sctx.beginPath();
+        sctx.moveTo(2, -4); sctx.lineTo(10, -2);
+        sctx.moveTo(2, 4); sctx.lineTo(10, 2);
+        sctx.stroke();
+        // Bow: a taut arc held ahead, string back to the hands.
+        sctx.strokeStyle = '#5c4a30';
+        sctx.lineWidth = 2;
+        sctx.beginPath();
+        sctx.arc(8, 0, 9, -Math.PI * 0.42, Math.PI * 0.42);
+        sctx.stroke();
+        sctx.strokeStyle = 'rgba(200,198,180,0.65)';
+        sctx.lineWidth = 1;
+        sctx.beginPath();
+        sctx.moveTo(11, -8); sctx.lineTo(11, 8);
+        sctx.stroke();
+        // Head with a hint of hair, off-center forward.
+        sctx.fillStyle = '#8a7f6a';
+        sctx.beginPath(); sctx.arc(1, 0, 4.4, 0, Math.PI * 2); sctx.fill();
+        sctx.fillStyle = '#3a352c';
+        sctx.beginPath(); sctx.arc(-1, 0, 3.4, Math.PI * 0.3, Math.PI * 1.7); sctx.fill();
+        sctx.restore();
+        surv.dirty = true;
+        this.game.cache.addImage('survivor', '', surv.canvas);
+
         // Blood particle for transient bursts (bright enough to read for a
         // beat even in the gloom before the permanent decal takes over).
         var blood_bmd = this.game.make.bitmapData(4, 4);
@@ -171,7 +214,7 @@ Group_Survive_State.prototype = {
         // The pivot sits at (14, 48) so the arc swings ahead of the body.
         var arc_bmd = this.game.make.bitmapData(96, 96);
         var actx = arc_bmd.context;
-        actx.strokeStyle = 'rgba(206,212,200,0.30)';
+        actx.strokeStyle = 'rgba(206,212,200,0.55)';
         actx.lineWidth = 14;
         actx.lineCap = 'round';
         actx.beginPath();
@@ -505,6 +548,17 @@ Group_Survive_State.prototype = {
         this.wave_shown_number = 0;
         this.wave_text_until = 0;
 
+        // The one permanent readout, straight from the reference HUD: a
+        // small serif tally top-left — wave, remaining, and the integrity
+        // of the zones the group is defending. Dim, steady, no chrome.
+        this.hud_zone = this.game.add.text(14, 12, '', {
+            font: "13px Georgia, 'Times New Roman', serif",
+            fill: "#a99f8a", align: 'left', lineSpacing: 2
+        });
+        this.hud_zone.setShadow(1, 1, 'rgba(0,0,0,0.9)', 3);
+        this.hud_zone.fixedToCamera = true;
+        this.hud_zone.alpha = 0.8;
+
         this.hud_dead = this.game.add.text(this.game.camera.width / 2, this.game.camera.height / 2 - 12, '', {
             font: "22px Georgia, 'Times New Roman', serif", fill: "#6b2f27"
         });
@@ -643,6 +697,19 @@ Group_Survive_State.prototype = {
         var wave_target = now < this.wave_text_until ? 0.92 : 0;
         this.hud_wave.alpha += (wave_target - this.hud_wave.alpha) * 0.05;
 
+        // Zone tally (reference-HUD style): WAVE / REMAINING / ZONE %s.
+        var snap = this.client.latest_snapshot;
+        if (snap && snap.wave && snap.wave.number > 0) {
+            var tally = 'WAVE ' + snap.wave.number +
+                '\nREMAINING ' + snap.wave.remaining;
+            var zones = snap.zones || [];
+            for (var zi = 0; zi < zones.length; zi++) {
+                tally += '\nZONE ' + zones[zi].id + ': ' +
+                    (zones[zi].integrity > 0 ? zones[zi].integrity + '%' : 'OVERRUN');
+            }
+            this.hud_zone.setText(tally);
+        }
+
         var dead_target = this.hud_dead.text.length > 0 ? 0.85 : 0;
         this.hud_dead.alpha += (dead_target - this.hud_dead.alpha) * 0.03;
         this.hud_dead_sub.alpha = this.hud_dead.alpha * 0.8;
@@ -723,12 +790,14 @@ Group_Survive_State.prototype = {
             seen[player.id] = true;
             var entry = self.remote_player_sprites[player.id];
             if (!entry) {
-                var sprite = self.game.add.sprite(player.x, player.y, 'bow');
+                var sprite = self.game.add.sprite(player.x, player.y, 'survivor');
                 sprite.anchor.set(0.5);
-                sprite.tint = 0x7a90a8;
+                sprite.tint = 0x9db4cc;
                 var label = self.game.add.text(player.x, player.y - 26, player.name, {
-                    font: "11px Arial", fill: "#8fa0ae", stroke: '#000000', strokeThickness: 2
+                    font: "italic 11px Georgia, 'Times New Roman', serif", fill: "#75816f"
                 });
+                label.setShadow(1, 1, 'rgba(0,0,0,0.9)', 2);
+                label.alpha = 0.6;
                 label.anchor.setTo(0.5, 0.5);
                 entry = self.remote_player_sprites[player.id] = { sprite: sprite, label: label };
             }
@@ -756,7 +825,10 @@ Group_Survive_State.prototype = {
                 sprite.zombie_kind = kind;
                 sprite.wobble_phase = Math.random() * Math.PI * 2;
                 sprite.heading = Math.random() * Math.PI * 2;
-                if (kind === 'walker') { sprite.scale.set(1.1); }
+                // Big enough to read by silhouette at street distance.
+                if (kind === 'walker') { sprite.scale.set(1.35); }
+                else if (kind === 'runner') { sprite.scale.set(1.25); }
+                else { sprite.scale.set(1.2); }
                 sprite.animations.add('move');
                 sprite.animations.play('move', self.zombie_anim_fps[kind] + Math.random() * 1.5, true);
                 sprite.eyes = self.game.add.sprite(zombie.x, zombie.y, self.zombie_eyes_bmd);
@@ -822,6 +894,11 @@ Group_Survive_State.prototype = {
                 var sprite = self.game.add.sprite(projectile.x, projectile.y, 'arrow');
                 sprite.anchor.set(0.5);
                 sprite.rotation = projectile.rotation;
+                // Not UI art: pulled down toward the scene's values so the
+                // shaft reads as a thing in the dark, led by its tracer.
+                sprite.tint = 0x8f887a;
+                sprite.alpha = 0.85;
+                sprite.scale.set(0.55);
                 entry = self.projectile_sprites[projectile.id] = { sprite: sprite, streak: streak };
             }
             // The server position is a baseline; update_projectile_motion

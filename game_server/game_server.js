@@ -82,6 +82,19 @@ var BARRICADE_COOLDOWN_MS = 900;
 
 var PLAYER_RADIUS = 14;
 
+// Safe zones (M1): sandbagged positions the group is defending — the
+// Survival-mode objective. Part of the horde goes for them, not for you;
+// an overrun zone stays overrun, thickens every later wave, and stops
+// hosting supply drops. Integrity is the ZONE A/B percentage on the HUD.
+var ZONES = [
+    { id: 'A', x: 560, y: 500, r: 62 },
+    { id: 'B', x: 1040, y: 742, r: 62 }
+];
+var ZONE_SAPPER_CHANCE = 0.3;   // share of spawns that go for a zone
+var ZONE_BITE = 1.5;            // integrity chewed per zombie attack
+var ZONE_DEFEND_RADIUS = 240;   // a nearby survivor pulls sappers off the zone
+var ZONE_OVERRUN_WAVE_PENALTY = 3;
+
 // The horde is not one shape: walkers shamble in mass, runners sprint and
 // terrify, crawlers drag themselves low and get underfoot.
 var ZOMBIE_KINDS = {
@@ -184,6 +197,9 @@ function Game_Server() {
     this.force_revive_all = false; // set on a group wipe: the replayed wave starts whole
     this.supply_drop = null;    // {x,y,state:'incoming'|'landed',lands_at,expires,claimed}
     this.barricades = {};       // id -> {id,x,y,rotation,hp,max_hp}
+    this.zones = ZONES.map(function(z) {
+        return { id: z.id, x: z.x, y: z.y, r: z.r, integrity: 100, overrun: false };
+    });
     this.events = [];
     this.deaths = []; // gore feed: where zombies fell this snapshot, for corpse decals
     this.hits = [];   // gore feed: non-fatal wounds this snapshot, for blood decals
@@ -341,7 +357,7 @@ Game_Server.prototype.spawn_player = function(id, name) {
             type: 'welcome',
             id: id,
             world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
-            map: { roads: MAP_ROADS, obstacles: MAP_OBSTACLES }
+            map: { roads: MAP_ROADS, obstacles: MAP_OBSTACLES, zones: ZONES }
         }));
     }
 };
@@ -548,8 +564,13 @@ Game_Server.prototype.spawn_pickup = function(x, y) {
 
 Game_Server.prototype.start_wave = function() {
     this.wave += 1;
-    // Horde density: enough bodies that the streets fill up.
-    this.zombies_to_spawn = 6 + this.wave * 4;
+    // Horde density: enough bodies that the streets fill up. Every zone
+    // the dead hold makes the next wave heavier.
+    var overrun_count = 0;
+    for (var zi = 0; zi < this.zones.length; zi++) {
+        if (this.zones[zi].overrun) { overrun_count += 1; }
+    }
+    this.zombies_to_spawn = 6 + this.wave * 4 + overrun_count * ZONE_OVERRUN_WAVE_PENALTY;
     this.events.push('Wave ' + this.wave + ' — they are coming...');
     // Death is sticky: a fallen survivor only gets back up if the group has
     // a respawn token to spend on them (a wipe replays the wave whole).
@@ -587,8 +608,16 @@ Game_Server.prototype.start_wave = function() {
 };
 
 Game_Server.prototype.schedule_supply_drop = function() {
-    // The flare goes down out on the streets near the crossroads.
+    // The helicopter drops on a zone the group still holds — defending the
+    // sandbags is what keeps the supplies coming. Overrun everything and
+    // the drops land wherever out on the streets.
     var x = 0, y = 0, ok = false;
+    var zone = this.nearest_standing_zone(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+    if (zone) {
+        x = zone.x + (Math.random() - 0.5) * 60;
+        y = zone.y + (Math.random() - 0.5) * 60;
+        ok = !point_blocked(x, y);
+    }
     for (var tries = 0; tries < 40 && !ok; tries++) {
         x = WORLD_WIDTH / 2 + (Math.random() - 0.5) * 520;
         y = WORLD_HEIGHT / 2 + (Math.random() - 0.5) * 420;
@@ -706,7 +735,9 @@ Game_Server.prototype.spawn_zombie = function() {
         damage: stats.damage,
         attack_range: stats.attack_range,
         radius: stats.radius,
-        last_attack: 0
+        last_attack: 0,
+        // A share of the horde goes for the sandbags, not the survivors.
+        objective: Math.random() < ZONE_SAPPER_CHANCE ? 'zone' : 'player'
     };
 };
 
@@ -833,6 +864,18 @@ Game_Server.prototype.spawn_turned_zombie = function(x, y) {
     };
 };
 
+Game_Server.prototype.nearest_standing_zone = function(x, y) {
+    var best = null, best_d2 = Infinity;
+    for (var i = 0; i < this.zones.length; i++) {
+        var zone = this.zones[i];
+        if (zone.overrun) { continue; }
+        var dx = zone.x - x, dy = zone.y - y;
+        var d2 = dx * dx + dy * dy;
+        if (d2 < best_d2) { best_d2 = d2; best = zone; }
+    }
+    return best;
+};
+
 Game_Server.prototype.tick_zombies = function(dt, now) {
     for (var zid in this.zombies) {
         var zombie = this.zombies[zid];
@@ -848,6 +891,37 @@ Game_Server.prototype.tick_zombies = function(dt, now) {
                 best = d2;
                 target = player;
             }
+        }
+        // Sappers go for the sandbags, not for you — unless a survivor is
+        // close enough to be the easier meal.
+        if (zombie.objective === 'zone' &&
+            !(target && best <= ZONE_DEFEND_RADIUS * ZONE_DEFEND_RADIUS)) {
+            var zone = this.nearest_standing_zone(zombie.x, zombie.y);
+            if (zone) {
+                var zdx = zone.x - zombie.x;
+                var zdy = zone.y - zombie.y;
+                var zdist = Math.sqrt(zdx * zdx + zdy * zdy) || 1;
+                if (zdist > zone.r) {
+                    var zpos = collide_circle_obstacles(
+                        zombie.x + (zdx / zdist) * zombie.speed * dt,
+                        zombie.y + (zdy / zdist) * zombie.speed * dt,
+                        zombie.radius || 12);
+                    zpos = this.collide_circle_barricades(zpos.x, zpos.y, zombie.radius || 12);
+                    zombie.x = clamp(zpos.x, 0, WORLD_WIDTH);
+                    zombie.y = clamp(zpos.y, 0, WORLD_HEIGHT);
+                }
+                else if (now - zombie.last_attack >= ZOMBIE_ATTACK_COOLDOWN_MS) {
+                    zombie.last_attack = now;
+                    zone.integrity = Math.max(0, zone.integrity - ZONE_BITE);
+                    if (zone.integrity === 0 && !zone.overrun) {
+                        zone.overrun = true;
+                        this.events.push('Zone ' + zone.id + ' is overrun. The dead hold it now.');
+                    }
+                }
+                continue;
+            }
+            // Both zones down: nothing left to sap, hunt like the rest.
+            zombie.objective = 'player';
         }
         if (!target) { continue; }
         var dist = Math.sqrt(best) || 1;
@@ -1058,6 +1132,10 @@ Game_Server.prototype.build_snapshot = function() {
             tokens: this.respawn_tokens,
             kills: this.kills
         },
+        zones: this.zones.map(function(zone) {
+            return { id: zone.id, x: zone.x, y: zone.y, r: zone.r,
+                     integrity: Math.round(zone.integrity) };
+        }),
         events: this.events.splice(0, this.events.length),
         deaths: this.deaths.splice(0, this.deaths.length),
         hits: this.hits.splice(0, this.hits.length),

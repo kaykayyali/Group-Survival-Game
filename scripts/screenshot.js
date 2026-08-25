@@ -58,10 +58,10 @@ var CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-l
         var canvas = await page.$('canvas');
         if (canvas) {
           var box = await canvas.boundingBox();
-          var scaleX = box.width / 800;
-          var scaleY = box.height / 600;
-          var sx = Math.min(box.width - 5, Math.max(5, (z.x - st.cam.x) * scaleX));
-          var sy = Math.min(box.height - 5, Math.max(5, (z.y - st.cam.y) * scaleY));
+          // Canvas internal resolution matches its CSS size (the game boots
+          // at window size), so world-to-screen is just camera-relative.
+          var sx = Math.min(box.width - 5, Math.max(5, z.x - st.cam.x));
+          var sy = Math.min(box.height - 5, Math.max(5, z.y - st.cam.y));
           await page.mouse.move(box.x + sx, box.y + sy);
           await page.keyboard.down('Space');
           await page.waitForTimeout(150);

@@ -17,7 +17,12 @@ Game_Client.prototype.init = function() {
 			alert(error);
 		}
 		else {
-			Game = new Phaser.Game(800, 600, Phaser.CANVAS, 'game-target');
+			// Fill the window edge to edge: the frame IS the night. A bright
+			// page mat around a small canvas would be the brightest thing on
+			// screen and break the dark before the game even starts.
+			var view_w = Math.max(640, Math.min(1920, window.innerWidth || 800));
+			var view_h = Math.max(480, Math.min(1200, window.innerHeight || 600));
+			Game = new Phaser.Game(view_w, view_h, Phaser.CANVAS, 'game-target');
 			Group_Survive = new Group_Survive_State(Game, self);
 			Game.state.add('Game', Group_Survive, true);
 			self.game = Game;

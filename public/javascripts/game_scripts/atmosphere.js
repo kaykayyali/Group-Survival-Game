@@ -13,6 +13,14 @@
  * Server stays authoritative: nothing here touches gameplay state; HP and
  * alive are read from the latest snapshot.
  */
+// Burning barrels: corners and curbs of the crossroads — out on the street
+// where the horde passes, never inside a building footprint. Shared by the
+// light pass and the map painter so every pool of light lands on wreckage.
+var AMBIENT_LIGHT_POSITIONS = [
+    { x: 688, y: 524 }, { x: 908, y: 712 }, { x: 250, y: 712 },
+    { x: 1352, y: 528 }, { x: 806, y: 166 }, { x: 772, y: 1052 }
+];
+
 Atmosphere = function(game, state) {
     Fast_Bindall(this);
     this.game = game;
@@ -221,7 +229,92 @@ Atmosphere.prototype.paint_static_map = function(map) {
         else { this.paint_wreck(ctx, o); }
     }
 
+    // --- Safe zones: sandbagged emplacements the group is defending ---
+    var zones = map.zones || [];
+    for (i = 0; i < zones.length; i++) {
+        this.paint_zone(ctx, zones[i]);
+    }
+
+    // --- Decay under the light: every burning barrel stands amid the
+    // wreckage it illuminates — trash, posters, scorch — so light pools
+    // land on material, not bare ground ---
+    for (i = 0; i < AMBIENT_LIGHT_POSITIONS.length; i++) {
+        this.paint_light_litter(ctx, AMBIENT_LIGHT_POSITIONS[i]);
+    }
+
     this.map_bmd.dirty = true;
+};
+
+Atmosphere.prototype.paint_zone = function(ctx, zone) {
+    var i, angle;
+    // Scuffed ground inside the emplacement.
+    var g = ctx.createRadialGradient(zone.x, zone.y, 4, zone.x, zone.y, zone.r);
+    g.addColorStop(0, 'rgba(48,46,38,0.55)');
+    g.addColorStop(1, 'rgba(48,46,38,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(zone.x - zone.r, zone.y - zone.r, zone.r * 2, zone.r * 2);
+    // Sandbag ring: fat worn bags laid end to end, gaps for entry.
+    var bags = 16;
+    for (i = 0; i < bags; i++) {
+        angle = (i / bags) * Math.PI * 2;
+        if (i % 8 === 0) { continue; } // entries
+        var bx = zone.x + Math.cos(angle) * zone.r;
+        var by = zone.y + Math.sin(angle) * zone.r;
+        ctx.save();
+        ctx.translate(bx, by);
+        ctx.rotate(angle + Math.PI / 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillRect(-11, -4, 22, 11);
+        ctx.fillStyle = i % 2 ? '#57503c' : '#615944';
+        ctx.fillRect(-11, -6, 22, 11);
+        ctx.strokeStyle = 'rgba(24,21,14,0.7)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-10.5, -5.5, 21, 10);
+        ctx.beginPath();
+        ctx.moveTo(0, -5.5); ctx.lineTo(0, 4.5);
+        ctx.stroke();
+        ctx.restore();
+    }
+    // Stencil letter on the ground.
+    ctx.fillStyle = 'rgba(196,190,168,0.30)';
+    ctx.font = '18px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(zone.id, zone.x, zone.y + 6);
+};
+
+Atmosphere.prototype.paint_light_litter = function(ctx, pos) {
+    var i;
+    // Scorch ring under the barrel.
+    var sg = ctx.createRadialGradient(pos.x, pos.y, 2, pos.x, pos.y, 30);
+    sg.addColorStop(0, 'rgba(8,7,5,0.6)');
+    sg.addColorStop(1, 'rgba(8,7,5,0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(pos.x - 30, pos.y - 30, 60, 60);
+    // Trash drifted against it.
+    for (i = 0; i < 14; i++) {
+        var tx = pos.x + (Math.random() - 0.5) * 130;
+        var ty = pos.y + (Math.random() - 0.5) * 110;
+        ctx.save();
+        ctx.translate(tx, ty);
+        ctx.rotate(Math.random() * Math.PI * 2);
+        ctx.fillStyle = Math.random() < 0.5 ?
+            'rgba(150,148,130,0.14)' : 'rgba(24,26,22,0.6)';
+        ctx.fillRect(-4, -3, 7 + Math.random() * 4, 5 + Math.random() * 3);
+        ctx.restore();
+    }
+    // Torn poster scraps and a smear of old blood nearby.
+    for (i = 0; i < 3; i++) {
+        var px = pos.x + (Math.random() - 0.5) * 150;
+        var py = pos.y + (Math.random() - 0.5) * 120;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate((Math.random() - 0.5) * 0.8);
+        ctx.fillStyle = 'rgba(168,158,132,0.18)';
+        ctx.fillRect(-6, -8, 12, 16);
+        ctx.fillStyle = 'rgba(90,30,26,0.25)';
+        ctx.fillRect(-4, -5, 8, 3);
+        ctx.restore();
+    }
 };
 
 Atmosphere.prototype.paint_building = function(ctx, o) {
@@ -469,14 +562,8 @@ Atmosphere.prototype.create_ambient_sources = function() {
     gctx.fillRect(0, 0, 200, 200);
     glow_bmd.dirty = true;
 
-    // Corners and curbs of the crossroads — out on the street where the
-    // horde passes, never inside a building footprint.
-    var positions = [
-        { x: 688, y: 524 }, { x: 908, y: 712 }, { x: 250, y: 712 },
-        { x: 1352, y: 528 }, { x: 806, y: 166 }, { x: 772, y: 1052 }
-    ];
     var self = this;
-    this.ambient_lights = positions.map(function(pos, index) {
+    this.ambient_lights = AMBIENT_LIGHT_POSITIONS.map(function(pos, index) {
         var glow = self.game.add.sprite(pos.x, pos.y, glow_bmd);
         glow.anchor.set(0.5);
         glow.blendMode = PIXI.blendModes.ADD;
@@ -821,20 +908,38 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
         ctx.fillRect(sx - radius, sy - radius, radius * 2, radius * 2);
     }
 
-    // Moonlight catches the horde: a faint presence-glow around every
-    // zombie so the mass reads as moving silhouettes even in the dark.
+    // Moonlight catches the horde: a cold presence-glow around every
+    // zombie so bodies read as half-seen shapes in the dark — threats you
+    // read by silhouette and motion, not UI markers.
     var zombie_sprites = this.state.zombie_sprites || {};
     for (var zid in zombie_sprites) {
         var zs = zombie_sprites[zid];
         var zx = zs.x - cam.x;
         var zy = zs.y - cam.y;
-        if (zx < -48 || zx > w + 48 || zy < -48 || zy > h + 48) { continue; }
-        var zg = ctx.createRadialGradient(zx, zy, 2, zx, zy, 40);
-        zg.addColorStop(0, 'rgba(255,255,255,0.32)');
-        zg.addColorStop(0.6, 'rgba(255,255,255,0.14)');
+        if (zx < -56 || zx > w + 56 || zy < -56 || zy > h + 56) { continue; }
+        var zg = ctx.createRadialGradient(zx, zy, 2, zx, zy, 48);
+        zg.addColorStop(0, 'rgba(255,255,255,0.5)');
+        zg.addColorStop(0.55, 'rgba(255,255,255,0.2)');
         zg.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = zg;
-        ctx.fillRect(zx - 40, zy - 40, 80, 80);
+        ctx.fillRect(zx - 48, zy - 48, 96, 96);
+    }
+
+    // Arrows in flight tear a sliver of visibility with them — the tracer
+    // is how you watch your shot travel the dark.
+    var projectile_sprites = this.state.projectile_sprites || {};
+    for (var aid in projectile_sprites) {
+        var arrow = projectile_sprites[aid];
+        var target = arrow.sprite || arrow;
+        if (!target.x && target.x !== 0) { continue; }
+        var ax = target.x - cam.x;
+        var ay = target.y - cam.y;
+        if (ax < -30 || ax > w + 30 || ay < -30 || ay > h + 30) { continue; }
+        var ag = ctx.createRadialGradient(ax, ay, 1, ax, ay, 26);
+        ag.addColorStop(0, 'rgba(255,255,255,0.5)');
+        ag.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = ag;
+        ctx.fillRect(ax - 26, ay - 26, 52, 52);
     }
 
     // Player flashlight: directional, flickering, gone when you're down.
@@ -861,11 +966,13 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
         ctx.fillStyle = hg;
         ctx.fillRect(px - halo, py - halo, halo * 2, halo * 2);
 
-        // Penumbra then core beam.
+        // Penumbra then core beam. The core erases the darkness completely
+        // so the beam actually discloses the world's material — asphalt,
+        // blood, debris — instead of a lighter shade of gray.
         var len = 430;
         var half = flash ? 0.55 : 0.45;
-        this.punch_cone(ctx, px, py, rot, half + 0.22, len * 0.82, 0.30 * intensity);
-        this.punch_cone(ctx, px, py, rot, half, len, (flash ? 1 : 0.93) * intensity);
+        this.punch_cone(ctx, px, py, rot, half + 0.22, len * 0.82, 0.34 * intensity);
+        this.punch_cone(ctx, px, py, rot, half, len, (flash ? 1 : 0.99) * intensity);
 
         // Dust in the beam: a faint warm haze painted back over the hole,
         // so the flashlight reads as light, not just absent darkness.
@@ -927,7 +1034,9 @@ Atmosphere.prototype.update_post = function(hp01, alive) {
 
     if (alive) {
         this.vignette_sprite.alpha = 0.72 + hurt * 0.28;
-        this.hurt_sprite.alpha = hurt * 0.36;
+        // Mid-fight damage must be readable mid-frame, not only at the
+        // edges: the wash starts pulling color earlier and harder.
+        this.hurt_sprite.alpha = hurt * 0.5;
         // Critical: creeping blood vignette with a slow heartbeat throb.
         var crit = Math.max(0, (0.35 - hp01) / 0.35);
         this.red_vignette_sprite.alpha = crit > 0 ?
@@ -983,6 +1092,7 @@ Atmosphere.prototype.raise_overlays = function() {
     }
     var state = this.state;
     if (state.hud_status) { world.bringToTop(state.hud_status); }
+    if (state.hud_zone) { world.bringToTop(state.hud_zone); }
     if (state.hud_wave) { world.bringToTop(state.hud_wave); }
     if (state.hud_dead) { world.bringToTop(state.hud_dead); }
     if (state.displayed_messages) {

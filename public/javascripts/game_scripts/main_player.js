@@ -12,7 +12,7 @@ Main_Player = function (game, client) {
     this.last_melee_sent = 0;
     this.last_sent = 0;
 
-    this.sprite = game.add.sprite(client.world.width / 2, client.world.height / 2, 'bow');
+    this.sprite = game.add.sprite(client.world.width / 2, client.world.height / 2, 'survivor');
     this.sprite.anchor.set(0.5);
 
     game.physics.arcade.enable(this.sprite);

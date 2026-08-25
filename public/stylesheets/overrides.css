@@ -229,24 +229,23 @@ body.loading {
 	margin-top: 25vh;
 }
 
-#game-target {
-	left: auto;
-	right: auto;
-	display: inline-block;
-	padding: 10px;
+/* The game page is the night itself: no mat, no chrome, nothing brighter
+ * than what the flashlight finds. */
+html, body.game-page {
+	margin: 0;
+	padding: 0;
+	background: #050604;
+	overflow: hidden;
+	height: 100%;
 }
 
-.background-overlay {
-	background-color: rgb(188, 188, 188);
-	border-radius: 10px;
-	box-shadow: black 1px 1px 10px;
+body.game-page #game-target {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	height: 100vh;
 }
 
-.black-background {
-	background-color: black;
-}
-
-.game-background {
-	margin-top: 10%;
-	min-height: 50vh;
+body.game-page canvas {
+	display: block;
 }
