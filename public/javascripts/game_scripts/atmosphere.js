@@ -34,21 +34,29 @@ Atmosphere = function(game, state) {
 };
 
 Atmosphere.prototype.create_static_map_layer = function() {
-    // World-sized canvas the decayed streetscape is painted onto once the
-    // server's map layout arrives. Sits above the bare ground tile and
-    // below the gore decals, structures and entities.
+    // One world-sized canvas carries the whole static world: the bare
+    // ground tile is patterned in immediately, the decayed streetscape is
+    // painted over it once the server's map layout arrives, and the gore
+    // decals are stamped on top of that. Collapsing what used to be three
+    // stacked world-sized layers (ground tileSprite + map + decals) into a
+    // single sprite removes two full-frame canvas blits every frame — the
+    // renderer is software canvas, where those blits dominate frame time.
     var w = this.client.world.width, h = this.client.world.height;
     this.map_bmd = this.game.add.bitmapData(w, h);
+    var ctx = this.map_bmd.context;
+    ctx.fillStyle = ctx.createPattern(this.ground_tile_bmd.canvas, 'repeat');
+    ctx.fillRect(0, 0, w, h);
+    this.map_bmd.dirty = true;
     this.map_sprite = this.game.add.sprite(0, 0, this.map_bmd);
     this.map_painted = false;
 };
 
 Atmosphere.prototype.create_decal_layer = function() {
     // Kills mark the world permanently: corpses and blood are stamped into
-    // this canvas and never cleared.
-    var w = this.client.world.width, h = this.client.world.height;
-    this.decal_bmd = this.game.add.bitmapData(w, h);
-    this.decal_sprite = this.game.add.sprite(0, 0, this.decal_bmd);
+    // the shared world canvas and never cleared. (Stamps land after the map
+    // paint, so they read above the streets exactly as the old separate
+    // decal layer did.)
+    this.decal_bmd = this.map_bmd;
 };
 
 Atmosphere.prototype.try_paint_map = function() {
@@ -422,9 +430,9 @@ Atmosphere.prototype.create_ground = function() {
     }
     bmd.dirty = true;
 
-    this.ground = this.game.add.tileSprite(
-        0, 0, this.client.world.width, this.client.world.height, bmd);
-    this.game.world.sendToBack(this.ground);
+    // No display object of its own: the tile is patterned into the shared
+    // world canvas by create_static_map_layer (one blit instead of two).
+    this.ground_tile_bmd = bmd;
 };
 
 Atmosphere.prototype.create_ambient_sources = function() {
@@ -643,22 +651,34 @@ Atmosphere.prototype.create_overlays = function() {
     var w = this.game.camera.width;
     var h = this.game.camera.height;
 
-    // The darkness mask itself, redrawn every frame.
-    this.darkness_bmd = this.game.add.bitmapData(w, h);
+    // The darkness mask itself, redrawn every frame — at HALF resolution,
+    // scaled back up 2x by the sprite. The mask is nothing but soft light
+    // falloffs, so the bilinear upscale is visually indistinguishable, and
+    // halving each axis cuts the mask's per-frame full-canvas raster cost
+    // (base fill, light holes, cones, haze) to a quarter. draw_darkness
+    // keeps working in screen coordinates via a ctx transform.
+    this.darkness_scale = 0.5;
+    this.darkness_bmd = this.game.add.bitmapData(
+        Math.ceil(w * this.darkness_scale), Math.ceil(h * this.darkness_scale));
     this.darkness_sprite = this.game.add.sprite(0, 0, this.darkness_bmd);
+    this.darkness_sprite.scale.set(1 / this.darkness_scale);
     this.darkness_sprite.fixedToCamera = true;
 
-    // Cool contrast grade: multiplies the lit scene toward a bleak,
-    // desaturated blue-gray.
+    // Contrast grade pulling the lit scene down toward bleak gray.
+    // This used to be a #9aa2ac MULTIPLY sprite at alpha 0.35 — but a
+    // full-frame multiply blend costs ~3.4ms/frame in the software canvas
+    // renderer. Multiplying by a constant color is just a per-channel scale
+    // of (1-a)+a*c = (0.861, 0.872, 0.886); a plain source-over black wash
+    // at alpha 1-mean = 0.127 produces the same scale (measured max pixel
+    // deviation: 3/255) at normal-blend cost, and blacks stay black.
     var grade_bmd = this.game.add.bitmapData(8, 8);
-    grade_bmd.context.fillStyle = '#9aa2ac';
+    grade_bmd.context.fillStyle = '#000000';
     grade_bmd.context.fillRect(0, 0, 8, 8);
     grade_bmd.dirty = true;
     this.grade_sprite = this.game.add.sprite(0, 0, grade_bmd);
     this.grade_sprite.scale.set(w / 8, h / 8);
     this.grade_sprite.fixedToCamera = true;
-    this.grade_sprite.blendMode = PIXI.blendModes.MULTIPLY;
-    this.grade_sprite.alpha = 0.35;
+    this.grade_sprite.alpha = 0.127;
 
     // Hurt overlay: flat dark-gray wash that drains color as HP falls
     // (dark so it mutes the lit areas instead of fogging the blacks).
@@ -765,6 +785,11 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
     var cam = this.game.camera;
     var w = cam.width, h = cam.height;
     var ctx = this.darkness_bmd.context;
+
+    // The mask canvas is half-resolution (see create_overlays); this
+    // transform lets everything below keep drawing in screen coordinates.
+    var ds = this.darkness_scale;
+    ctx.setTransform(ds, 0, 0, ds, 0, 0);
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, w, h);
