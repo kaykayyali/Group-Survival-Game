@@ -11,6 +11,7 @@ Group_Survive_State = function(game, client) {
     this.remote_player_sprites = {};
     this.projectile_sprites = {};
     this.pickup_sprites = {};
+    this.barricade_sprites = {};
     this.displayed_messages = [];
     this.pending_snapshot = null;
 };
@@ -27,8 +28,12 @@ Group_Survive_State.prototype = {
         this.create_textures();
         this.atmosphere = new Atmosphere(this.game, this);
         this.zombie_eyes_group = this.game.add.group();
+        // Markers that must read even through the darkness mask: the supply
+        // flare burns above it (that is what a flare is for).
+        this.marker_group = this.game.add.group();
         this.main_player = new Main_Player(this.game, this.client);
         this.game.camera.follow(this.main_player.sprite);
+        this.create_infection_overlay();
         this.create_hud();
         this.created = true;
     },
@@ -71,6 +76,108 @@ Group_Survive_State.prototype = {
         health_graphic.endFill();
         this.health_texture = health_graphic.generateTexture();
         health_graphic.destroy();
+
+        // Supply crate: an olive drop-box, strapped, with a pale stencil
+        // cross. Sits under the darkness — the flare marks it, the
+        // flashlight finds it.
+        var crate_bmd = this.game.make.bitmapData(40, 34);
+        var cctx = crate_bmd.context;
+        cctx.fillStyle = 'rgba(0,0,0,0.45)';
+        cctx.fillRect(4, 5, 36, 29);
+        cctx.fillStyle = '#3e4931';
+        cctx.fillRect(0, 0, 36, 30);
+        cctx.strokeStyle = 'rgba(18,24,14,0.85)';
+        cctx.lineWidth = 1;
+        cctx.strokeRect(0.5, 0.5, 35, 29);
+        cctx.beginPath();
+        cctx.moveTo(0, 10.5); cctx.lineTo(36, 10.5);
+        cctx.moveTo(0, 20.5); cctx.lineTo(36, 20.5);
+        cctx.stroke();
+        cctx.fillStyle = '#232b19';
+        cctx.fillRect(8, 0, 5, 30);
+        cctx.fillRect(23, 0, 5, 30);
+        cctx.fillStyle = 'rgba(196,200,182,0.85)';
+        cctx.fillRect(16, 8, 4, 14);
+        cctx.fillRect(11, 13, 14, 4);
+        crate_bmd.dirty = true;
+        this.crate_bmd = crate_bmd;
+
+        // Barricade: three rough boards nailed crosswise. Drawn along +x;
+        // the server hands us the rotation (across the builder's facing).
+        var plank_bmd = this.game.make.bitmapData(52, 20);
+        var pctx = plank_bmd.context;
+        var planks = [
+            { y: 4, h: 5, tone: '#6b5637', tilt: -0.06 },
+            { y: 9, h: 5, tone: '#57452c', tilt: 0.05 },
+            { y: 13, h: 4, tone: '#645033', tilt: -0.03 }
+        ];
+        for (var pi = 0; pi < planks.length; pi++) {
+            var pl = planks[pi];
+            pctx.save();
+            pctx.translate(26, pl.y + pl.h / 2);
+            pctx.rotate(pl.tilt);
+            pctx.fillStyle = 'rgba(0,0,0,0.4)';
+            pctx.fillRect(-25, -pl.h / 2 + 1.5, 50, pl.h);
+            pctx.fillStyle = pl.tone;
+            pctx.fillRect(-25, -pl.h / 2, 50, pl.h);
+            pctx.strokeStyle = 'rgba(28,20,10,0.55)';
+            pctx.lineWidth = 1;
+            pctx.beginPath();
+            pctx.moveTo(-22, 0); pctx.lineTo(22, 0.5);
+            pctx.stroke();
+            pctx.fillStyle = 'rgba(20,20,22,0.9)';
+            pctx.fillRect(-21, -1, 2, 2);
+            pctx.fillRect(19, -1, 2, 2);
+            pctx.restore();
+        }
+        plank_bmd.dirty = true;
+        this.barricade_bmd = plank_bmd;
+
+        // Flare glow: the one thing that burns through the dark.
+        var flare_bmd = this.game.make.bitmapData(110, 110);
+        var fctx = flare_bmd.context;
+        var fg = fctx.createRadialGradient(55, 55, 2, 55, 55, 52);
+        fg.addColorStop(0, 'rgba(255,120,70,0.95)');
+        fg.addColorStop(0.25, 'rgba(230,60,40,0.55)');
+        fg.addColorStop(1, 'rgba(180,30,20,0)');
+        fctx.fillStyle = fg;
+        fctx.fillRect(0, 0, 110, 110);
+        flare_bmd.dirty = true;
+        this.flare_bmd = flare_bmd;
+    },
+    create_infection_overlay: function() {
+        // M8: the bite is private. Creeping dark veins close in from the
+        // edges of your own screen; nobody else's client renders them, and
+        // whether you tell the group is up to you.
+        var w = this.game.camera.width, h = this.game.camera.height;
+        var bmd = this.game.add.bitmapData(w, h);
+        var ctx = bmd.context;
+        var cx = w / 2, cy = h / 2;
+        var outer = Math.sqrt(cx * cx + cy * cy);
+        var rim = ctx.createRadialGradient(cx, cy, outer * 0.34, cx, cy, outer);
+        rim.addColorStop(0, 'rgba(16,4,10,0)');
+        rim.addColorStop(0.65, 'rgba(20,5,12,0.45)');
+        rim.addColorStop(1, 'rgba(14,3,8,0.9)');
+        ctx.fillStyle = rim;
+        ctx.fillRect(0, 0, w, h);
+        for (var i = 0; i < 16; i++) {
+            var t = (i + 0.5) / 16;
+            var px, py;
+            var side = i % 4;
+            if (side === 0) { px = t * w; py = -4; }
+            else if (side === 1) { px = t * w; py = h + 4; }
+            else if (side === 2) { px = -4; py = t * h; }
+            else { px = w + 4; py = t * h; }
+            var toward = Math.atan2(cy - py, cx - px);
+            draw_vein(ctx, px, py, toward + (Math.random() - 0.5) * 0.5,
+                70 + Math.random() * 90, 3 + Math.random() * 2.4, 4);
+        }
+        bmd.dirty = true;
+        this.veins_sprite = this.game.add.sprite(0, 0, bmd);
+        this.veins_sprite.fixedToCamera = true;
+        this.veins_sprite.alpha = 0;
+        this.own_infection = 0;
+        this.was_infected = false;
     },
     create_zombie_sheets: function() {
         // Three humanoid silhouettes, drawn programmatically, four animation
@@ -228,6 +335,21 @@ Group_Survive_State.prototype = {
             self.show_ammo_until = self.game.time.now + 1500;
             self.refresh_ammo_display();
         });
+
+        // B nails up a barricade (boards come from supply drops; the
+        // server owns placement, cost and hp).
+        this.current_boards = 0;
+        this.last_known_boards = null;
+        this.barricade_key = this.game.input.keyboard.addKey(Phaser.KeyCode.B);
+        this.game.input.keyboard.addKeyCapture([Phaser.KeyCode.B]);
+        this.barricade_key.onDown.add(function() {
+            if (self.current_boards > 0) {
+                self.client.send({ type: 'barricade' });
+            }
+            else {
+                self.display_new_message('no boards left — the supply drops carry them');
+            }
+        });
     },
     refresh_ammo_display: function() {
         // Rebuild the transient quiver readout: one tally per arrow,
@@ -306,8 +428,34 @@ Group_Survive_State.prototype = {
             }
         }
 
+        // Supply flare: urgent strobe while the chopper is inbound, a
+        // steady dying ember once the crate is down.
+        if (this.supply_flare) {
+            var ft = now / 1000;
+            if (this.supply_drop_state === 'incoming') {
+                this.supply_flare.alpha = 0.5 + 0.5 * Math.abs(Math.sin(ft * 3.6));
+                this.supply_flare.scale.set(1.05 + 0.3 * Math.sin(ft * 3.6));
+            }
+            else {
+                this.supply_flare.alpha = 0.4 + 0.12 * Math.sin(ft * 2.1) + Math.random() * 0.06;
+                this.supply_flare.scale.set(0.85);
+            }
+        }
+
+        // Infection veins: creep in with progress, throb like a pulse.
+        if (this.veins_sprite) {
+            var vein_target = 0;
+            if (this.own_infection > 0) {
+                vein_target = Math.min(0.92, 0.3 + this.own_infection * 0.68) *
+                    (0.86 + 0.14 * Math.sin(now / 1000 * 2.6));
+            }
+            this.veins_sprite.alpha += (vein_target - this.veins_sprite.alpha) * 0.05;
+        }
+
         // Atmosphere re-stacks its overlays every frame before this runs;
         // lift the HUD pieces it doesn't know about back above the post pass.
+        if (this.marker_group) { this.game.world.bringToTop(this.marker_group); }
+        if (this.veins_sprite) { this.game.world.bringToTop(this.veins_sprite); }
         this.game.world.bringToTop(this.ammo_group);
         this.game.world.bringToTop(this.hud_dead_sub);
     },
@@ -368,7 +516,7 @@ Group_Survive_State.prototype = {
                 sprite.animations.play('move', self.zombie_anim_fps[kind] + Math.random() * 1.5, true);
                 sprite.eyes = self.game.add.sprite(zombie.x, zombie.y, self.zombie_eyes_bmd);
                 sprite.eyes.anchor.set(0.5);
-                sprite.eyes.alpha = 0.5;
+                sprite.eyes.alpha = 0.65;
                 if (kind === 'crawler') { sprite.eyes.scale.set(0.8); }
                 self.zombie_eyes_group.add(sprite.eyes);
             }
@@ -426,6 +574,47 @@ Group_Survive_State.prototype = {
         });
         prune(this.pickup_sprites, seen, function(sprite) { sprite.destroy(); });
 
+        // Barricades: boards nailed across the streets. They splinter and
+        // darken as the horde tears at them.
+        seen = {};
+        (snapshot.barricades || []).forEach(function(barricade) {
+            seen[barricade.id] = true;
+            var sprite = self.barricade_sprites[barricade.id];
+            if (!sprite) {
+                sprite = self.barricade_sprites[barricade.id] =
+                    self.game.add.sprite(barricade.x, barricade.y, self.barricade_bmd);
+                sprite.anchor.set(0.5);
+                sprite.rotation = barricade.rotation;
+            }
+            var ratio = Math.max(0, barricade.hp / barricade.max_hp);
+            sprite.tint = ratio > 0.66 ? 0xffffff : (ratio > 0.33 ? 0xb5a488 : 0x82705a);
+            sprite.alpha = 0.7 + 0.3 * ratio;
+        });
+        prune(this.barricade_sprites, seen, function(sprite) { sprite.destroy(); });
+
+        // Supply drop: a flare that burns through the darkness marks the
+        // point; the crate itself lands under it a few seconds later.
+        var drop = snapshot.supply_drop;
+        if (drop) {
+            this.supply_drop_state = drop.state;
+            if (!this.supply_flare) {
+                this.supply_flare = this.game.add.sprite(drop.x, drop.y, this.flare_bmd);
+                this.supply_flare.anchor.set(0.5);
+                this.supply_flare.blendMode = PIXI.blendModes.ADD;
+                this.marker_group.add(this.supply_flare);
+            }
+            this.supply_flare.x = drop.x;
+            this.supply_flare.y = drop.y;
+            if (drop.state === 'landed' && !this.crate_sprite) {
+                this.crate_sprite = this.game.add.sprite(drop.x, drop.y, this.crate_bmd);
+                this.crate_sprite.anchor.set(0.5);
+            }
+        }
+        else {
+            if (this.supply_flare) { this.supply_flare.destroy(); this.supply_flare = null; }
+            if (this.crate_sprite) { this.crate_sprite.destroy(); this.crate_sprite = null; }
+        }
+
         if (own) {
             this.main_player.apply_server_state(own);
             // No permanent counters: HP drives the Atmosphere post pass,
@@ -439,9 +628,43 @@ Group_Survive_State.prototype = {
                 this.show_ammo_until = this.game.time.now + 1500;
                 this.refresh_ammo_display();
             }
+            // Boards on your back (a quiet line in the feed when they change).
+            this.current_boards = own.boards || 0;
+            if (this.last_known_boards === null) {
+                this.last_known_boards = this.current_boards;
+            }
+            else if (this.current_boards !== this.last_known_boards) {
+                if (this.current_boards > this.last_known_boards) {
+                    this.display_new_message('you carry ' + this.current_boards +
+                        (this.current_boards === 1 ? ' board' : ' boards') + ' — B nails one up');
+                }
+                this.last_known_boards = this.current_boards;
+            }
+            // Infection: only your own client is told, and only you see the
+            // veins creep in. Telling the others is your call.
+            var infected_now = !!own.infected && own.alive;
+            this.own_infection = infected_now ? (own.infection || 0) : 0;
+            if (infected_now && !this.was_infected) {
+                this.display_new_message('that bite went deep... something is wrong');
+            }
+            else if (!infected_now && this.was_infected && own.alive) {
+                this.display_new_message('the fever breaks. you feel like yourself again');
+            }
+            this.was_infected = infected_now;
             if (!own.alive) {
                 this.hud_dead.setText(spaced('YOU ARE DOWN'));
-                this.hud_dead_sub.setText('the others can bring you back when the next wave comes');
+                var tokens = snapshot.wave.tokens || 0;
+                if (tokens > 0) {
+                    this.hud_dead_sub.setText('the group holds ' + tokens +
+                        (tokens === 1 ? ' respawn token' : ' respawn tokens') +
+                        ' — you rise with the next wave');
+                }
+                else {
+                    var kills = snapshot.wave.kills || 0;
+                    var need = 10 - (kills % 10);
+                    this.hud_dead_sub.setText('no respawn tokens — the group needs ' +
+                        need + ' more kills to buy you back');
+                }
             }
             else {
                 this.hud_dead.setText('');
@@ -494,6 +717,27 @@ Group_Survive_State.prototype = {
 // Letter-space a line the cheap way; Phaser 2 text has no letterSpacing.
 function spaced(text) {
     return text.split('').join(' ');
+}
+
+// Recursive creeping vein: a jittery dark-red branch that splits as it
+// crawls inward from the screen edge (infection overlay).
+function draw_vein(ctx, x, y, angle, len, width, depth) {
+    if (depth <= 0 || width < 0.6) { return; }
+    var steps = 4;
+    ctx.strokeStyle = 'rgba(58,6,18,0.6)';
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (var s = 0; s < steps; s++) {
+        angle += (Math.random() - 0.5) * 0.8;
+        x += Math.cos(angle) * (len / steps);
+        y += Math.sin(angle) * (len / steps);
+        ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    draw_vein(ctx, x, y, angle + 0.4 + Math.random() * 0.5, len * 0.62, width * 0.62, depth - 1);
+    draw_vein(ctx, x, y, angle - 0.4 - Math.random() * 0.5, len * 0.62, width * 0.62, depth - 1);
 }
 
 function prune(map, seen, destroy) {

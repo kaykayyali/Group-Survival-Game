@@ -29,17 +29,54 @@ var MELEE_RANGE = 55;
 var MELEE_DAMAGE = 25;
 var MELEE_COOLDOWN_MS = 700;
 var MELEE_KNOCKBACK = 60;
+var MELEE_STAMINA_COST = 30;
+var STAMINA_MAX = 100;
+var STAMINA_REGEN_PER_S = 16;
 
 var WAVE_INTERMISSION_MS = 6000;
+
+// Respawn tokens (M4): death is sticky. The group earns one token per
+// KILLS_PER_TOKEN zombies put down; each token buys one fallen survivor
+// back at the start of the next wave. No token, no coming back.
+var KILLS_PER_TOKEN = 10;
+
+// Supply drops (M3): resupply is an event, not litter. Every few waves a
+// helicopter marks a drop point with a flare, and the crate that lands
+// carries arrows, meds, boards — and the only cure for infection.
+var SUPPLY_DROP_EVERY_WAVES = 3;
+var SUPPLY_FLARE_MS = 6000;
+var SUPPLY_LIFETIME_MS = 60000;
+var SUPPLY_AMMO = 12;
+var SUPPLY_HP = 40;
+var SUPPLY_BOARDS = 2;
+
+// Infection (M8): a bite can infect. The fever creeps for two minutes —
+// vision closing in — and then you turn, right there, next to your friends.
+// Only the infected player is shown their own state; telling the team is
+// their choice.
+var INFECTION_CHANCE = 0.1;
+var INFECTION_FULL_MS = 120000;
+var INFECTION_FEVER_FROM = 0.4;
+var INFECTION_FEVER_HP = 2;
+var INFECTION_FEVER_EVERY_MS = 5000;
+
+// Barricading (M5): boards come from supply drops; B nails one up in front
+// of you. Barricades stop zombies (never survivors), and the horde tears
+// through them given time.
+var PLAYER_START_BOARDS = 2;
+var BARRICADE_HP = 140;
+var BARRICADE_RADIUS = 24;
+var BARRICADE_PLACE_DIST = 34;
+var BARRICADE_COOLDOWN_MS = 900;
 
 var PLAYER_RADIUS = 14;
 
 // The horde is not one shape: walkers shamble in mass, runners sprint and
 // terrify, crawlers drag themselves low and get underfoot.
 var ZOMBIE_KINDS = {
-    walker:  { speed_min: 40, speed_max: 58,  hp_base: 100, hp_per_wave: 10, damage: 10, attack_range: 30, radius: 13 },
-    runner:  { speed_min: 100, speed_max: 130, hp_base: 55, hp_per_wave: 6,  damage: 8,  attack_range: 28, radius: 11 },
-    crawler: { speed_min: 30, speed_max: 44,  hp_base: 40,  hp_per_wave: 5,  damage: 6,  attack_range: 24, radius: 9 }
+    walker:  { speed_min: 40, speed_max: 58,  hp_base: 100, hp_per_wave: 10, damage: 8, attack_range: 30, radius: 13 },
+    runner:  { speed_min: 100, speed_max: 130, hp_base: 55, hp_per_wave: 6,  damage: 7, attack_range: 28, radius: 11 },
+    crawler: { speed_min: 30, speed_max: 44,  hp_base: 40,  hp_per_wave: 5,  damage: 5, attack_range: 24, radius: 9 }
 };
 
 // A ruined crossroads. Roads are for the clients to paint; obstacles are
@@ -127,6 +164,11 @@ function Game_Server() {
     this.zombies_to_spawn = 0;
     this.intermission_until = Date.now() + WAVE_INTERMISSION_MS;
     this.spawn_accumulator = 0;
+    this.kills = 0;             // group total; every KILLS_PER_TOKEN earns a token
+    this.respawn_tokens = 0;
+    this.force_revive_all = false; // set on a group wipe: the replayed wave starts whole
+    this.supply_drop = null;    // {x,y,state:'incoming'|'landed',lands_at,expires,claimed}
+    this.barricades = {};       // id -> {id,x,y,rotation,hp,max_hp}
     this.events = [];
     this.deaths = []; // gore feed: where zombies fell this snapshot, for corpse decals
     this.hits = [];   // gore feed: non-fatal wounds this snapshot, for blood decals
@@ -210,11 +252,27 @@ Game_Server.prototype.handle_message = function(id, message) {
                 this.player_melee(player);
             }
             break;
+        case 'barricade':
+            if (player && player.alive) {
+                this.player_barricade(player);
+            }
+            break;
     }
 };
 
 Game_Server.prototype.spawn_player = function(id, name) {
     name = String(name || 'Survivor').slice(0, 20);
+    // Joining an abandoned world: the leftover horde has converged on the
+    // spawn by now and would ambush the new group instantly. Let it move
+    // on and replay the wave after a breather.
+    if (Object.keys(this.players).length === 0 &&
+        (Object.keys(this.zombies).length > 0 || this.zombies_to_spawn > 0)) {
+        this.zombies = {};
+        this.projectiles = {};
+        this.zombies_to_spawn = 0;
+        this.wave = Math.max(0, this.wave - 1);
+        this.intermission_until = Date.now() + WAVE_INTERMISSION_MS;
+    }
     this.players[id] = {
         id: id,
         name: name,
@@ -224,7 +282,14 @@ Game_Server.prototype.spawn_player = function(id, name) {
         hp: PLAYER_MAX_HP,
         ammo: PLAYER_START_AMMO,
         alive: true,
-        last_melee: 0
+        last_melee: 0,
+        stamina: STAMINA_MAX,
+        boards: PLAYER_START_BOARDS,
+        last_barricade: 0,
+        infected: false,
+        infection: 0,
+        infected_at: 0,
+        last_fever: 0
     };
     this.events.push(name + ' joined the group. Survive together.');
     var ws = this.sockets[id];
@@ -261,6 +326,11 @@ Game_Server.prototype.player_melee = function(player) {
     if (now - player.last_melee < MELEE_COOLDOWN_MS) {
         return;
     }
+    // The shove costs something: swing on an empty tank and nothing happens.
+    if ((player.stamina || 0) < MELEE_STAMINA_COST) {
+        return;
+    }
+    player.stamina -= MELEE_STAMINA_COST;
     player.last_melee = now;
     for (var zid in this.zombies) {
         var zombie = this.zombies[zid];
@@ -279,6 +349,68 @@ Game_Server.prototype.player_melee = function(player) {
     }
 };
 
+Game_Server.prototype.player_barricade = function(player) {
+    var now = Date.now();
+    if ((player.boards || 0) <= 0) { return; }
+    if (now - (player.last_barricade || 0) < BARRICADE_COOLDOWN_MS) { return; }
+    // Nail the boards up an arm's length ahead, across your facing.
+    var bx = clamp(player.x + Math.cos(player.rotation) * BARRICADE_PLACE_DIST, 30, WORLD_WIDTH - 30);
+    var by = clamp(player.y + Math.sin(player.rotation) * BARRICADE_PLACE_DIST, 30, WORLD_HEIGHT - 30);
+    if (point_blocked(bx, by)) { return; }
+    for (var id in this.barricades) {
+        var other = this.barricades[id];
+        var dx = other.x - bx, dy = other.y - by;
+        if (dx * dx + dy * dy < (BARRICADE_RADIUS * 1.6) * (BARRICADE_RADIUS * 1.6)) { return; }
+    }
+    player.boards -= 1;
+    player.last_barricade = now;
+    var bid = 'b' + (this.next_id++);
+    this.barricades[bid] = {
+        id: bid,
+        x: bx,
+        y: by,
+        rotation: player.rotation + Math.PI / 2,
+        hp: BARRICADE_HP,
+        max_hp: BARRICADE_HP
+    };
+    this.events.push(player.name + ' nailed boards across the gap.');
+};
+
+Game_Server.prototype.nearest_touching_barricade = function(x, y, reach) {
+    var best = null, best_d2 = Infinity;
+    for (var id in this.barricades) {
+        var b = this.barricades[id];
+        var dx = b.x - x, dy = b.y - y;
+        var d2 = dx * dx + dy * dy;
+        var limit = BARRICADE_RADIUS + reach;
+        if (d2 <= limit * limit && d2 < best_d2) { best = b; best_d2 = d2; }
+    }
+    return best;
+};
+
+// Zombies (never survivors) are pushed back out of barricade circles.
+Game_Server.prototype.collide_circle_barricades = function(x, y, radius) {
+    for (var id in this.barricades) {
+        var b = this.barricades[id];
+        var dx = x - b.x, dy = y - b.y;
+        var min_dist = BARRICADE_RADIUS + radius;
+        var d2 = dx * dx + dy * dy;
+        if (d2 >= min_dist * min_dist) { continue; }
+        var d = Math.sqrt(d2) || 1;
+        x = b.x + (dx / d) * min_dist;
+        y = b.y + (dy / d) * min_dist;
+    }
+    return { x: x, y: y };
+};
+
+Game_Server.prototype.damage_barricade = function(barricade, amount) {
+    barricade.hp -= amount;
+    if (barricade.hp <= 0) {
+        delete this.barricades[barricade.id];
+        this.events.push('The horde tore a barricade apart.');
+    }
+};
+
 Game_Server.prototype.damage_zombie = function(zombie, amount, player) {
     zombie.hp -= amount;
     if (zombie.hp <= 0) {
@@ -289,7 +421,15 @@ Game_Server.prototype.damage_zombie = function(zombie, amount, player) {
             this.deaths.push({ x: Math.round(zombie.x), y: Math.round(zombie.y), kind: zombie.kind || 'walker' });
         }
         this.events.push(player.name + ' put one down.');
-        if (Math.random() < 0.25) {
+        // Kills are the group's currency: every KILLS_PER_TOKEN buys one
+        // fallen survivor back at the next wave.
+        this.kills += 1;
+        if (this.kills % KILLS_PER_TOKEN === 0) {
+            this.respawn_tokens += 1;
+            this.events.push(this.kills + ' put down — the group earned a respawn token.');
+        }
+        // Scavenge is rare litter now; the supply drop is the real resupply.
+        if (Math.random() < 0.12) {
             this.spawn_pickup(zombie.x, zombie.y);
         }
     }
@@ -316,27 +456,101 @@ Game_Server.prototype.spawn_pickup = function(x, y) {
 Game_Server.prototype.start_wave = function() {
     this.wave += 1;
     // Horde density: enough bodies that the streets fill up.
-    this.zombies_to_spawn = 8 + this.wave * 5;
+    this.zombies_to_spawn = 6 + this.wave * 4;
     this.events.push('Wave ' + this.wave + ' — they are coming...');
-    // Fallen survivors get back up between waves.
+    // Death is sticky: a fallen survivor only gets back up if the group has
+    // a respawn token to spend on them (a wipe replays the wave whole).
     for (var id in this.players) {
         var player = this.players[id];
         if (!player.alive) {
+            if (!this.force_revive_all && this.respawn_tokens <= 0) { continue; }
+            if (!this.force_revive_all) {
+                this.respawn_tokens -= 1;
+                this.events.push('A respawn token was spent — ' + player.name + ' is back on their feet.');
+            }
             player.alive = true;
             player.hp = Math.floor(PLAYER_MAX_HP / 2);
             player.ammo = Math.max(player.ammo, 8);
+            player.infected = false;
+            player.infection = 0;
             player.x = WORLD_WIDTH / 2;
             player.y = WORLD_HEIGHT / 2;
         }
     }
-    this.spawn_pickup(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT);
-    this.spawn_pickup(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT);
+    this.force_revive_all = false;
+    // The helicopter comes after every SUPPLY_DROP_EVERY_WAVES-th wave:
+    // resupply is an event you fight toward, not litter on the ground.
+    if (this.wave % SUPPLY_DROP_EVERY_WAVES === 0 && !this.supply_drop) {
+        this.schedule_supply_drop();
+    }
+};
+
+Game_Server.prototype.schedule_supply_drop = function() {
+    // The flare goes down out on the streets near the crossroads.
+    var x = 0, y = 0, ok = false;
+    for (var tries = 0; tries < 40 && !ok; tries++) {
+        x = WORLD_WIDTH / 2 + (Math.random() - 0.5) * 520;
+        y = WORLD_HEIGHT / 2 + (Math.random() - 0.5) * 420;
+        ok = !point_blocked(x, y);
+    }
+    if (!ok) { x = WORLD_WIDTH / 2; y = WORLD_HEIGHT / 2 + 90; }
+    this.supply_drop = {
+        x: Math.round(x),
+        y: Math.round(y),
+        state: 'incoming',
+        lands_at: Date.now() + SUPPLY_FLARE_MS,
+        expires: 0,
+        claimed: {}
+    };
+    this.events.push('A helicopter thunders overhead — a flare marks the supply drop.');
+};
+
+Game_Server.prototype.tick_supply_drop = function(now) {
+    var drop = this.supply_drop;
+    if (!drop) { return; }
+    if (drop.state === 'incoming') {
+        if (now >= drop.lands_at) {
+            drop.state = 'landed';
+            drop.expires = now + SUPPLY_LIFETIME_MS;
+            this.events.push('The supply crate is down. Stock up before the horde closes in.');
+        }
+        return;
+    }
+    // Landed: each survivor can stock up once — arrows, meds, boards, and
+    // quietly, the cure if a bite is festering in them.
+    var all_claimed = true;
+    for (var pid in this.players) {
+        var player = this.players[pid];
+        if (!player.alive) { continue; }
+        if (drop.claimed[pid]) { continue; }
+        var dx = player.x - drop.x;
+        var dy = player.y - drop.y;
+        if (dx * dx + dy * dy <= 36 * 36) {
+            drop.claimed[pid] = true;
+            player.ammo += SUPPLY_AMMO;
+            player.hp = Math.min(PLAYER_MAX_HP, player.hp + SUPPLY_HP);
+            player.boards = (player.boards || 0) + SUPPLY_BOARDS;
+            if (player.infected) {
+                // The cure is taken in silence; nobody else has to know.
+                player.infected = false;
+                player.infection = 0;
+            }
+            this.events.push(player.name + ' stocked up at the supply crate.');
+        }
+        else {
+            all_claimed = false;
+        }
+    }
+    if ((all_claimed && Object.keys(this.players).length > 0) || now >= drop.expires) {
+        this.supply_drop = null;
+        this.events.push('The supply crate is picked clean.');
+    }
 };
 
 Game_Server.prototype.pick_zombie_kind = function() {
-    // Wave 1 is all shamblers; runners and crawlers thicken the mix later.
-    var runner_chance = this.wave >= 2 ? Math.min(0.32, 0.06 + this.wave * 0.04) : 0;
-    var crawler_chance = this.wave >= 2 ? 0.18 : 0.10;
+    // Mostly shamblers early; runners and crawlers thicken the mix later.
+    var runner_chance = this.wave >= 2 ? Math.min(0.32, 0.06 + this.wave * 0.04) : 0.08;
+    var crawler_chance = this.wave >= 2 ? 0.18 : 0.12;
     var roll = Math.random();
     if (roll < runner_chance) { return 'runner'; }
     if (roll < runner_chance + crawler_chance) { return 'crawler'; }
@@ -355,10 +569,10 @@ Game_Server.prototype.spawn_zombie = function() {
     for (var pid in this.players) {
         if (this.players[pid].alive) { alive_players.push(this.players[pid]); }
     }
-    if (alive_players.length > 0 && Math.random() < 0.65) {
+    if (alive_players.length > 0 && Math.random() < 0.85) {
         var mark = alive_players[Math.floor(Math.random() * alive_players.length)];
-        x = clamp(mark.x + (Math.random() - 0.5) * 700, 0, WORLD_WIDTH);
-        y = clamp(mark.y + (Math.random() - 0.5) * 700, 0, WORLD_HEIGHT);
+        x = clamp(mark.x + (Math.random() - 0.5) * 1000, 0, WORLD_WIDTH);
+        y = clamp(mark.y + (Math.random() - 0.5) * 1000, 0, WORLD_HEIGHT);
         // Snap to the nearest edge from that point.
         var d_left = x, d_right = WORLD_WIDTH - x, d_top = y, d_bottom = WORLD_HEIGHT - y;
         var m = Math.min(d_left, d_right, d_top, d_bottom);
@@ -408,6 +622,7 @@ Game_Server.prototype.tick = function(dt) {
             zombies_alive = 0;
             this.wave = Math.max(0, this.wave - 1);
             this.intermission_until = now + WAVE_INTERMISSION_MS;
+            this.force_revive_all = true; // the replayed wave starts whole, tokens untouched
             this.events.push('The whole group went down. The horde moves on... try that wave again.');
         }
         if (this.zombies_to_spawn === 0 && zombies_alive === 0) {
@@ -425,7 +640,7 @@ Game_Server.prototype.tick = function(dt) {
         else if (this.zombies_to_spawn > 0) {
             this.spawn_accumulator += dt;
             // Pour the horde in fast enough that it masses up on screen.
-            if (this.spawn_accumulator >= 0.28) {
+            if (this.spawn_accumulator >= 0.24) {
                 this.spawn_accumulator = 0;
                 this.spawn_zombie();
                 this.zombies_to_spawn -= 1;
@@ -433,9 +648,59 @@ Game_Server.prototype.tick = function(dt) {
         }
     }
 
+    this.tick_players(dt, now);
     this.tick_zombies(dt, now);
     this.tick_projectiles(dt, now);
     this.tick_pickups();
+    this.tick_supply_drop(now);
+};
+
+Game_Server.prototype.tick_players = function(dt, now) {
+    for (var pid in this.players) {
+        var player = this.players[pid];
+        if (!player.alive) { continue; }
+        player.stamina = Math.min(STAMINA_MAX, (player.stamina || 0) + STAMINA_REGEN_PER_S * dt);
+        if (!player.infected) { continue; }
+        // The bite festers on a clock. Vision goes first (the client reads
+        // the progress), then the fever starts taking flesh, then you turn.
+        player.infection = Math.min(1, (now - player.infected_at) / INFECTION_FULL_MS);
+        if (player.infection >= INFECTION_FEVER_FROM &&
+            now - (player.last_fever || 0) >= INFECTION_FEVER_EVERY_MS) {
+            player.last_fever = now;
+            player.hp -= INFECTION_FEVER_HP;
+            if (player.hp <= 0) {
+                player.hp = 0;
+                player.alive = false;
+                this.events.push(player.name + ' burned out with fever.');
+                continue;
+            }
+        }
+        if (player.infection >= 1) {
+            player.hp = 0;
+            player.alive = false;
+            this.events.push(player.name + ' turned. They are one of them now.');
+            this.spawn_turned_zombie(player.x, player.y);
+        }
+    }
+};
+
+Game_Server.prototype.spawn_turned_zombie = function(x, y) {
+    var id = 'z' + (this.next_id++);
+    var stats = ZOMBIE_KINDS.runner;
+    var max_hp = stats.hp_base + Math.max(0, this.wave - 1) * stats.hp_per_wave;
+    this.zombies[id] = {
+        id: id,
+        kind: 'runner',
+        x: clamp(x, 0, WORLD_WIDTH),
+        y: clamp(y, 0, WORLD_HEIGHT),
+        hp: max_hp,
+        max_hp: max_hp,
+        speed: stats.speed_min + Math.random() * (stats.speed_max - stats.speed_min),
+        damage: stats.damage,
+        attack_range: stats.attack_range,
+        radius: stats.radius,
+        last_attack: Date.now()
+    };
 };
 
 Game_Server.prototype.tick_zombies = function(dt, now) {
@@ -459,18 +724,37 @@ Game_Server.prototype.tick_zombies = function(dt, now) {
         var range = zombie.attack_range || ZOMBIE_ATTACK_RANGE;
         var radius = zombie.radius || 12;
         if (dist > range) {
-            // Move axis-separated against the obstacles so the horde slides
-            // along walls and pours down the streets instead of sticking.
-            var step_x = ((target.x - zombie.x) / dist) * zombie.speed * dt;
-            var step_y = ((target.y - zombie.y) / dist) * zombie.speed * dt;
-            var pos = collide_circle_obstacles(zombie.x + step_x, zombie.y, radius);
-            pos = collide_circle_obstacles(pos.x, pos.y + step_y, radius);
-            zombie.x = clamp(pos.x, 0, WORLD_WIDTH);
-            zombie.y = clamp(pos.y, 0, WORLD_HEIGHT);
+            // A barricade in its face gets torn at instead of walked through.
+            var blocking = this.nearest_touching_barricade(zombie.x, zombie.y, radius + 8);
+            if (blocking) {
+                if (now - zombie.last_attack >= ZOMBIE_ATTACK_COOLDOWN_MS) {
+                    zombie.last_attack = now;
+                    this.damage_barricade(blocking, (zombie.damage || ZOMBIE_DAMAGE) * 2);
+                }
+            }
+            else {
+                // Move axis-separated against the obstacles so the horde slides
+                // along walls and pours down the streets instead of sticking.
+                var step_x = ((target.x - zombie.x) / dist) * zombie.speed * dt;
+                var step_y = ((target.y - zombie.y) / dist) * zombie.speed * dt;
+                var pos = collide_circle_obstacles(zombie.x + step_x, zombie.y, radius);
+                pos = collide_circle_obstacles(pos.x, pos.y + step_y, radius);
+                pos = this.collide_circle_barricades(pos.x, pos.y, radius);
+                zombie.x = clamp(pos.x, 0, WORLD_WIDTH);
+                zombie.y = clamp(pos.y, 0, WORLD_HEIGHT);
+            }
         }
         else if (now - zombie.last_attack >= ZOMBIE_ATTACK_COOLDOWN_MS) {
             zombie.last_attack = now;
             target.hp -= (zombie.damage || ZOMBIE_DAMAGE);
+            // A bite can infect. No announcement — only the bitten player's
+            // own client learns, and telling the team is up to them.
+            if (target.alive && !target.infected && Math.random() < INFECTION_CHANCE) {
+                target.infected = true;
+                target.infection = 0;
+                target.infected_at = now;
+                target.last_fever = now;
+            }
             if (target.hp <= 0) {
                 target.hp = 0;
                 target.alive = false;
@@ -562,7 +846,10 @@ Game_Server.prototype.build_snapshot = function() {
         var p = this.players[pid];
         players.push({
             id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y),
-            rotation: p.rotation, hp: p.hp, ammo: p.ammo, alive: p.alive
+            rotation: p.rotation, hp: p.hp, ammo: p.ammo, alive: p.alive,
+            stamina: Math.round(p.stamina || 0), boards: p.boards || 0,
+            infected: !!p.infected,
+            infection: p.infected ? Math.round((p.infection || 0) * 100) / 100 : 0
         });
     }
     var zombies = [];
@@ -580,16 +867,38 @@ Game_Server.prototype.build_snapshot = function() {
         var k = this.pickups[kid];
         pickups.push({ id: k.id, x: k.x, y: k.y, kind: k.kind });
     }
+    var barricades = [];
+    for (var bid in this.barricades) {
+        var b = this.barricades[bid];
+        barricades.push({
+            id: b.id, x: Math.round(b.x), y: Math.round(b.y),
+            rotation: b.rotation, hp: b.hp, max_hp: b.max_hp
+        });
+    }
+    var supply_drop = null;
+    if (this.supply_drop) {
+        supply_drop = {
+            x: this.supply_drop.x,
+            y: this.supply_drop.y,
+            state: this.supply_drop.state,
+            lands_in: this.supply_drop.state === 'incoming' ?
+                Math.max(0, this.supply_drop.lands_at - Date.now()) : 0
+        };
+    }
     var snapshot = {
         type: 'snapshot',
         players: players,
         zombies: zombies,
         projectiles: projectiles,
         pickups: pickups,
+        barricades: barricades,
+        supply_drop: supply_drop,
         wave: {
             number: this.wave,
             remaining: zombies.length + this.zombies_to_spawn,
-            intermission: this.intermission_until ? Math.max(0, this.intermission_until - Date.now()) : 0
+            intermission: this.intermission_until ? Math.max(0, this.intermission_until - Date.now()) : 0,
+            tokens: this.respawn_tokens,
+            kills: this.kills
         },
         events: this.events.splice(0, this.events.length),
         deaths: this.deaths.splice(0, this.deaths.length),

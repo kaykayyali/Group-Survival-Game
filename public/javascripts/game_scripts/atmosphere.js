@@ -73,7 +73,7 @@ Atmosphere.prototype.paint_static_map = function(map) {
     }
 
     // --- Sidewalks bordering the roads ---
-    ctx.fillStyle = '#232622';
+    ctx.fillStyle = '#2b2f2a';
     for (i = 0; i < roads.length; i++) {
         o = roads[i];
         if (o.w > o.h) { // horizontal
@@ -107,7 +107,7 @@ Atmosphere.prototype.paint_static_map = function(map) {
     // --- Roads: worn asphalt, curbs, faded lane paint ---
     for (i = 0; i < roads.length; i++) {
         o = roads[i];
-        ctx.fillStyle = '#17191b';
+        ctx.fillStyle = '#1c1f21';
         ctx.fillRect(o.x, o.y, o.w, o.h);
         // Curb lines.
         ctx.strokeStyle = 'rgba(60,64,60,0.55)';
@@ -121,7 +121,7 @@ Atmosphere.prototype.paint_static_map = function(map) {
             ctx.beginPath(); ctx.moveTo(o.x + o.w - 1, o.y); ctx.lineTo(o.x + o.w - 1, o.y + o.h); ctx.stroke();
         }
         // Faded center line, broken and skipped like old paint.
-        ctx.fillStyle = 'rgba(150,132,62,0.20)';
+        ctx.fillStyle = 'rgba(150,132,62,0.30)';
         if (o.w > o.h) {
             var cy = o.y + o.h / 2 - 2;
             for (x = o.x + 10; x < o.x + o.w; x += 52) {
@@ -139,7 +139,7 @@ Atmosphere.prototype.paint_static_map = function(map) {
     if (roads.length >= 2) {
         var hr = roads[0].w > roads[0].h ? roads[0] : roads[1];
         var vr = roads[0].w > roads[0].h ? roads[1] : roads[0];
-        ctx.fillStyle = 'rgba(170,175,170,0.10)';
+        ctx.fillStyle = 'rgba(170,175,170,0.16)';
         for (x = vr.x + 6; x < vr.x + vr.w - 6; x += 18) {
             ctx.fillRect(x, hr.y - 24, 10, 20);
             ctx.fillRect(x, hr.y + hr.h + 4, 10, 20);
@@ -217,16 +217,16 @@ Atmosphere.prototype.paint_static_map = function(map) {
 };
 
 Atmosphere.prototype.paint_building = function(ctx, o) {
-    var jitter = (Math.random() * 10) | 0;
+    var jitter = (Math.random() * 12) | 0;
     // Ground shadow apron.
     ctx.fillStyle = 'rgba(0,0,0,0.38)';
     ctx.fillRect(o.x + 6, o.y + 8, o.w, o.h);
     // Walls.
-    var wall = 34 + jitter;
+    var wall = 52 + jitter;
     ctx.fillStyle = 'rgb(' + wall + ',' + (wall + 2) + ',' + (wall + 6) + ')';
     ctx.fillRect(o.x, o.y, o.w, o.h);
     // Roof, inset.
-    var roof = 26 + jitter;
+    var roof = 40 + jitter;
     ctx.fillStyle = 'rgb(' + roof + ',' + (roof + 1) + ',' + (roof + 5) + ')';
     ctx.fillRect(o.x + 7, o.y + 7, o.w - 14, o.h - 14);
     // Parapet catchlight on the north/west edges (cold moonlight).
@@ -261,7 +261,7 @@ Atmosphere.prototype.paint_building = function(ctx, o) {
     // South face: the wall you'd see at street level — dark doorways and
     // boarded windows, a hint of pseudo-3D.
     var face_h = 12;
-    ctx.fillStyle = 'rgba(58,60,66,0.9)';
+    ctx.fillStyle = 'rgba(76,79,86,0.9)';
     ctx.fillRect(o.x, o.y + o.h - face_h, o.w, face_h);
     var openings = Math.max(2, Math.floor(o.w / 70));
     for (i = 0; i < openings; i++) {
@@ -565,7 +565,7 @@ Atmosphere.prototype.stamp_blood = function(x, y, heavy) {
         var spread = dir + (Math.random() - 0.5) * 1.6;
         var sx = x + Math.cos(spread) * throw_dist;
         var sy = y + Math.sin(spread) * throw_dist;
-        ctx.fillStyle = 'rgba(88,12,9,' + (0.30 + Math.random() * 0.35).toFixed(2) + ')';
+        ctx.fillStyle = 'rgba(122,16,11,' + (0.35 + Math.random() * 0.35).toFixed(2) + ')';
         draw_disc(ctx, sx, sy, 1.2 + Math.random() * (heavy ? 3.4 : 2.2));
     }
     this.decal_bmd.dirty = true;
@@ -582,17 +582,17 @@ Atmosphere.prototype.stamp_corpse = function(x, y, kind) {
     var px = x + (Math.random() - 0.5) * 8;
     var py = y + (Math.random() - 0.5) * 8;
     var pg = ctx.createRadialGradient(px, py, 1, px, py, pr);
-    pg.addColorStop(0, 'rgba(76,10,7,0.62)');
-    pg.addColorStop(0.7, 'rgba(64,9,7,0.38)');
-    pg.addColorStop(1, 'rgba(64,9,7,0)');
+    pg.addColorStop(0, 'rgba(100,13,9,0.62)');
+    pg.addColorStop(0.7, 'rgba(84,11,8,0.38)');
+    pg.addColorStop(1, 'rgba(84,11,8,0)');
     ctx.fillStyle = pg;
     ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2);
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
-    var skin = crawler ? '#4f5245' : '#565b4c';
-    var cloth = runner ? '#38312a' : '#2b2e27';
+    var skin = crawler ? '#5e6253' : '#6b7160';
+    var cloth = runner ? '#463f33' : '#3a3e35';
     // Splayed limbs: lines with round caps at broken angles.
     ctx.lineCap = 'round';
     ctx.strokeStyle = skin;
@@ -611,7 +611,7 @@ Atmosphere.prototype.stamp_corpse = function(x, y, kind) {
     ctx.fillStyle = cloth;
     draw_soft_ellipse(ctx, 0, 0, 9, 6.5);
     // Gut wound.
-    ctx.fillStyle = 'rgba(96,14,10,0.85)';
+    ctx.fillStyle = 'rgba(140,22,14,0.9)';
     draw_soft_ellipse(ctx, 1, 1, 4, 2.6);
     // Head, lolled to one side.
     ctx.fillStyle = skin;
@@ -767,7 +767,7 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
     // Wounded eyes: the world itself dims further as HP falls. Deep dark,
     // but a sliver of moonlight: big shapes — streets, buildings, the
     // horde — still read as silhouettes.
-    var base = alive ? (0.885 + (1 - hp01) * 0.05) : 0.955;
+    var base = alive ? (0.885 + (1 - hp01) * 0.05) : 0.94;
     ctx.fillStyle = 'rgba(3,5,10,' + base.toFixed(3) + ')';
     ctx.fillRect(0, 0, w, h);
 
@@ -799,13 +799,13 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
         var zs = zombie_sprites[zid];
         var zx = zs.x - cam.x;
         var zy = zs.y - cam.y;
-        if (zx < -40 || zx > w + 40 || zy < -40 || zy > h + 40) { continue; }
-        var zg = ctx.createRadialGradient(zx, zy, 2, zx, zy, 32);
-        zg.addColorStop(0, 'rgba(255,255,255,0.20)');
-        zg.addColorStop(0.6, 'rgba(255,255,255,0.10)');
+        if (zx < -48 || zx > w + 48 || zy < -48 || zy > h + 48) { continue; }
+        var zg = ctx.createRadialGradient(zx, zy, 2, zx, zy, 40);
+        zg.addColorStop(0, 'rgba(255,255,255,0.32)');
+        zg.addColorStop(0.6, 'rgba(255,255,255,0.14)');
         zg.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = zg;
-        ctx.fillRect(zx - 32, zy - 32, 64, 64);
+        ctx.fillRect(zx - 40, zy - 40, 80, 80);
     }
 
     // Player flashlight: directional, flickering, gone when you're down.
@@ -824,7 +824,7 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
         var flash = player.last_shot && (this.game.time.now - player.last_shot < 90);
 
         // Personal halo: enough to see your own feet, no more.
-        var halo = flash ? 150 : 78;
+        var halo = flash ? 150 : 96;
         var halo_alpha = (flash ? 0.9 : 0.42) * intensity;
         var hg = ctx.createRadialGradient(px, py, 2, px, py, halo);
         hg.addColorStop(0, 'rgba(255,255,255,' + halo_alpha.toFixed(3) + ')');
@@ -834,7 +834,7 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
 
         // Penumbra then core beam.
         var len = 430;
-        var half = flash ? 0.52 : 0.40;
+        var half = flash ? 0.55 : 0.45;
         this.punch_cone(ctx, px, py, rot, half + 0.22, len * 0.82, 0.30 * intensity);
         this.punch_cone(ctx, px, py, rot, half, len, (flash ? 1 : 0.93) * intensity);
 

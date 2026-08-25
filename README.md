@@ -16,11 +16,19 @@ Open `http://localhost:3000`, enter a name, and you're in. Open more
 browser windows for co-op — everyone shares one world.
 
 - **Move**: WASD or arrow keys
-- **Aim**: mouse
+- **Aim**: mouse (your flashlight follows your aim — light is a resource)
 - **Shoot**: left click or spacebar (arrows are scarce — count your shots)
-- **Melee shove**: F (always available, knocks zombies back)
-- Zombies drop **ammo** (yellow) and **health** (red cross) pickups
-- Go down and the horde won't stop — your group revives you at the next wave
+- **Melee shove**: F (knocks zombies back; it costs stamina, so you can't spam it)
+- **Check your quiver**: R (the arrow count only surfaces when you check or it changes)
+- **Barricade**: B nails boards across the street in front of you — zombies tear
+  at them instead of walking through; boards come from supply drops
+- Every 3rd wave a **helicopter supply drop** lands under a flare: arrows, meds,
+  boards — and quietly, the cure
+- **Respawn tokens**: every 10 kills earns the group one. Death is sticky — a
+  fallen survivor only gets back up at the next wave if there's a token to spend
+- A bite can **infect** you. Only you see the veins creep in; the fever turns you
+  in two minutes unless you reach a supply crate. Telling the team is your call
+- Zombies rarely drop **ammo** (yellow) and **health** (red cross); the drop is the real resupply
 - Each wave is bigger and tougher than the last. There is no winning, only surviving.
 
 ## Architecture
