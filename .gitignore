@@ -1,0 +1,3 @@
+# Agent worktrees (transient build infrastructure)
+.claude/worktrees/
+.DS_Store
