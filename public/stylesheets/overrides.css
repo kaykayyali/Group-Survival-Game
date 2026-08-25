@@ -1,29 +1,191 @@
-.center-page { 
-	margin-top: 25vh;
+/* ============================================================
+   Landing — quiet dread
+   ============================================================ */
+
+html {
+	background-color: #050404;
 }
 
-#game-target {
-  left: auto;
-  right: auto;
-  display: inline-block;
-  padding: 10px;
+body.landing {
+	margin: 0;
+	min-height: 100vh;
+	color: #c9c0b1;
+	font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif;
+	background-color: #060505;
+	background-image:
+		radial-gradient(ellipse 90% 60% at 50% 34%, rgba(42, 36, 28, 0.40) 0%, rgba(14, 12, 10, 0) 60%),
+		radial-gradient(ellipse 90% 40% at 50% 108%, rgba(96, 34, 26, 0.10) 0%, rgba(0, 0, 0, 0) 60%);
+	-webkit-font-smoothing: antialiased;
 }
 
-.background-overlay {
-	background-color: rgb(188, 188, 188);
-	border-radius: 10px;
-    box-shadow: black 1px 1px 10px;
-}
-.black-background {
-	background-color: black;
+.transmission {
+	position: relative;
+	z-index: 1;
+	box-sizing: border-box;
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	padding: 3rem 1.5rem;
 }
 
-.game-background {
-  margin-top: 10%;
-	min-height: 50vh;
+.kicker {
+	margin: 0 0 3rem;
+	font-size: 0.7rem;
+	letter-spacing: 0.5em;
+	padding-left: 0.5em; /* recenter letterspaced caps */
+	text-transform: uppercase;
+	color: #5d564c;
 }
 
+.signal {
+	display: inline-block;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background-color: #77241e;
+	margin-right: 1.1em;
+	vertical-align: 1px;
+	animation: signal 3.2s ease-in-out infinite;
+}
 
+h1 {
+	margin: 0;
+	font-weight: 400;
+	font-variant: small-caps;
+	font-size: clamp(3rem, 8.5vw, 5.75rem);
+	line-height: 1.05;
+	letter-spacing: 0.05em;
+	color: #cfc5b2;
+	text-shadow:
+		0 0 24px rgba(201, 183, 150, 0.10),
+		0 2px 1px rgba(0, 0, 0, 0.85);
+}
+
+.rule {
+	width: 72px;
+	border: 0;
+	border-top: 1px solid #2e2922;
+	margin: 2.4rem auto 2.2rem;
+}
+
+.copy {
+	margin: 0 0 3.4rem;
+	font-style: italic;
+	font-size: 1.02rem;
+	letter-spacing: 0.02em;
+	color: #857b6b;
+}
+
+.callsign label {
+	display: block;
+	font-size: 0.66rem;
+	letter-spacing: 0.42em;
+	padding-left: 0.42em;
+	text-transform: uppercase;
+	color: #756c5c;
+	margin-bottom: 1.1rem;
+	cursor: pointer;
+}
+
+#name_input {
+	display: block;
+	width: min(420px, 86vw);
+	margin: 0 auto;
+	background: transparent;
+	border: 0;
+	border-bottom: 1px solid #524a3a;
+	border-radius: 0;
+	color: #d6ccba;
+	font-family: inherit;
+	font-size: 1.45rem;
+	text-align: center;
+	padding: 0.35em 0.2em 0.5em;
+	outline: none;
+	caret-color: #d8cbab;
+	transition: border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+#name_input:focus {
+	border-bottom-color: #8d7d5c;
+	box-shadow: 0 14px 26px -18px rgba(201, 173, 122, 0.45);
+}
+
+#name_input::placeholder {
+	color: #6e6556;
+	font-style: italic;
+	opacity: 1;
+}
+
+#enter_button {
+	margin-top: 2.6rem;
+	background: transparent;
+	border: 1px solid #353028;
+	border-radius: 0;
+	color: #9a9080;
+	font-family: inherit;
+	font-size: 0.78rem;
+	letter-spacing: 0.5em;
+	padding: 1em 2.4em 1em 2.9em; /* recenter letterspaced caps */
+	text-transform: uppercase;
+	cursor: pointer;
+	transition: color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+#enter_button:hover,
+#enter_button:focus {
+	border-color: #6e231d;
+	color: #d3c8b5;
+	box-shadow:
+		0 0 28px rgba(110, 35, 29, 0.18),
+		inset 0 0 12px rgba(110, 35, 29, 0.08);
+	outline: none;
+}
+
+#name_input_form.has-error #name_input {
+	border-bottom-color: #8a2b23;
+}
+
+#name_input_form.has-error label {
+	color: #8a2b23;
+}
+
+#name_input_form.has-error #name_input::placeholder {
+	color: #7a352d;
+}
+
+#name_input_form.has-success #name_input {
+	border-bottom-color: #6b6353;
+}
+
+.footnote {
+	margin: 4.5rem 0 0;
+	font-size: 0.68rem;
+	letter-spacing: 0.34em;
+	padding-left: 0.34em;
+	text-transform: uppercase;
+	color: #635b4d;
+}
+
+#grain {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	pointer-events: none;
+	z-index: 3;
+	opacity: 0.55;
+}
+
+/* Loading state — index.js hides body children and adds .loading */
+
+body.loading {
+	background-color: #050404;
+	background-image: none;
+}
 
 .loading:before {
 	content: '';
@@ -33,92 +195,58 @@
 	left: 0;
 	width: 100%;
 	height: 100%;
-	background-color: rgba(255,255,255,0.3);
+	background-color: #050404;
+	z-index: 10;
 }
 
 .loading:not(:required):after {
-	position: absolute;
-	top: 49%;
-	left: 49%;
-	content: '';
-	display: block;
-	font-size: 10px;
-	width: 1em;
-	height: 1em;
-	margin-top: -0.5em;
-	-webkit-animation: spinner 1500ms infinite linear;
-	-moz-animation: spinner 1500ms infinite linear;
-	-ms-animation: spinner 1500ms infinite linear;
-	-o-animation: spinner 1500ms infinite linear;
-	animation: spinner 1500ms infinite linear;
-	border-radius: 0.5em;
-	-webkit-box-shadow: rgba(0, 0, 0, 0.75) 1.5em 0 0 0, rgba(0, 0, 0, 0.75) 1.1em 1.1em 0 0, rgba(0, 0, 0, 0.75) 0 1.5em 0 0, rgba(0, 0, 0, 0.75) -1.1em 1.1em 0 0, rgba(0, 0, 0, 0.5) -1.5em 0 0 0, rgba(0, 0, 0, 0.5) -1.1em -1.1em 0 0, rgba(0, 0, 0, 0.75) 0 -1.5em 0 0, rgba(0, 0, 0, 0.75) 1.1em -1.1em 0 0;
-	box-shadow: rgba(0, 0, 0, 0.75) 1.5em 0 0 0, rgba(0, 0, 0, 0.75) 1.1em 1.1em 0 0, rgba(0, 0, 0, 0.75) 0 1.5em 0 0, rgba(0, 0, 0, 0.75) -1.1em 1.1em 0 0, rgba(0, 0, 0, 0.75) -1.5em 0 0 0, rgba(0, 0, 0, 0.75) -1.1em -1.1em 0 0, rgba(0, 0, 0, 0.75) 0 -1.5em 0 0, rgba(0, 0, 0, 0.75) 1.1em -1.1em 0 0;
+	content: '\00b7 \00b7 \00b7 \2002 transmitting \2002 \00b7 \00b7 \00b7';
+	position: fixed;
+	top: 48%;
+	left: 0;
+	width: 100%;
+	text-align: center;
+	text-indent: 0.45em; /* recenter letterspaced text */
+	z-index: 11;
+	font-family: Georgia, 'Times New Roman', serif;
+	font-style: italic;
+	font-size: 0.95rem;
+	letter-spacing: 0.45em;
+	color: #6f6759;
+	animation: signal 1.8s ease-in-out infinite;
 }
 
-/* Animation */
+@keyframes signal {
+	0%, 100% { opacity: 0.25; }
+	50% { opacity: 1; }
+}
 
-@-webkit-keyframes spinner {
-  0% {
-    -webkit-transform: rotate(0deg);
-    -moz-transform: rotate(0deg);
-    -ms-transform: rotate(0deg);
-    -o-transform: rotate(0deg);
-    transform: rotate(0deg);
-  }
-  100% {
-    -webkit-transform: rotate(360deg);
-    -moz-transform: rotate(360deg);
-    -ms-transform: rotate(360deg);
-    -o-transform: rotate(360deg);
-    transform: rotate(360deg);
-  }
+/* ============================================================
+   Game page (unchanged behavior)
+   ============================================================ */
+
+.center-page {
+	margin-top: 25vh;
 }
-@-moz-keyframes spinner {
-  0% {
-    -webkit-transform: rotate(0deg);
-    -moz-transform: rotate(0deg);
-    -ms-transform: rotate(0deg);
-    -o-transform: rotate(0deg);
-    transform: rotate(0deg);
-  }
-  100% {
-    -webkit-transform: rotate(360deg);
-    -moz-transform: rotate(360deg);
-    -ms-transform: rotate(360deg);
-    -o-transform: rotate(360deg);
-    transform: rotate(360deg);
-  }
+
+#game-target {
+	left: auto;
+	right: auto;
+	display: inline-block;
+	padding: 10px;
 }
-@-o-keyframes spinner {
-  0% {
-    -webkit-transform: rotate(0deg);
-    -moz-transform: rotate(0deg);
-    -ms-transform: rotate(0deg);
-    -o-transform: rotate(0deg);
-    transform: rotate(0deg);
-  }
-  100% {
-    -webkit-transform: rotate(360deg);
-    -moz-transform: rotate(360deg);
-    -ms-transform: rotate(360deg);
-    -o-transform: rotate(360deg);
-    transform: rotate(360deg);
-  }
+
+.background-overlay {
+	background-color: rgb(188, 188, 188);
+	border-radius: 10px;
+	box-shadow: black 1px 1px 10px;
 }
-@keyframes spinner {
-  0% {
-    -webkit-transform: rotate(0deg);
-    -moz-transform: rotate(0deg);
-    -ms-transform: rotate(0deg);
-    -o-transform: rotate(0deg);
-    transform: rotate(0deg);
-  }
-  100% {
-    -webkit-transform: rotate(360deg);
-    -moz-transform: rotate(360deg);
-    -ms-transform: rotate(360deg);
-    -o-transform: rotate(360deg);
-    transform: rotate(360deg);
-  }
+
+.black-background {
+	background-color: black;
+}
+
+.game-background {
+	margin-top: 10%;
+	min-height: 50vh;
 }

@@ -2,21 +2,46 @@
 <html>
   <head>
     <title><%= title %></title>
-    <link rel='stylesheet' href='/stylesheets/bootstrap.min.css' />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAS0lEQVR42mNgY2X9TwlmGDUAtwFinJz/lXi5wRjEJskAkAYDQb7/TmJCYAxi4zIEqwEgW0Ea4+UkwRjEBonRzwCKvUBxII6mRNIwAFdlFwSlm59pAAAAAElFTkSuQmCC" />
     <link rel='stylesheet' href='/stylesheets/overrides.css' />
     <script src="/javascripts/jquery-3.1.1.min.js" ></script>
     <script src="/javascripts/js_cookie.js" ></script>
     <script src="/javascripts/index.js" ></script>
   </head>
-  <body class='container black-background'>
-  	<div class="col-xs-12 text-center center-page background-overlay">
- 		<h1 class="center-block"><%= title %></h1>
-   		<div class="form-group col-xs-6 col-xs-offset-3 " id="name_input_form">
-			<label for="name_input">Enter your name</label>
-			<input type="text" class="form-control" id="name_input" placeholder="Your name..." autocomplete="off"/>
-			<br>
-			<button type="submit" class="btn btn-danger" id="enter_button">Enter</button>
-		</div>
-  	</div>
+  <body class='landing'>
+    <main class="transmission">
+      <p class="kicker"><span class="signal" aria-hidden="true"></span>emergency broadcast &middot; final transmission</p>
+      <h1>Group Survival</h1>
+      <hr class="rule" />
+      <p class="copy">The channel is still open. If anyone is out there &mdash; say your name.</p>
+      <div id="name_input_form" class="callsign">
+        <label for="name_input">state your name for the record</label>
+        <input type="text" id="name_input" placeholder="your name" autocomplete="off" spellcheck="false" autofocus />
+        <button type="submit" id="enter_button">Enter</button>
+      </div>
+      <p class="footnote">no one is coming &mdash; keep each other alive</p>
+    </main>
+    <div id="grain" aria-hidden="true"></div>
+    <script>
+      (function () {
+        var size = 140;
+        var c = document.createElement('canvas');
+        c.width = c.height = size;
+        var ctx = c.getContext('2d');
+        var img = ctx.createImageData(size, size);
+        var d = img.data;
+        for (var i = 0; i < d.length; i += 4) {
+          var v = (Math.random() * 255) | 0;
+          d[i] = d[i + 1] = d[i + 2] = v;
+          d[i + 3] = 13;
+        }
+        ctx.putImageData(img, 0, 0);
+        var g = document.getElementById('grain');
+        if (g) {
+          g.style.backgroundImage = 'url(' + c.toDataURL('image/png') + ')';
+        }
+      })();
+    </script>
   </body>
 </html>
