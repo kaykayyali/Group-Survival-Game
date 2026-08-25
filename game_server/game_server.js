@@ -60,6 +60,17 @@ var INFECTION_FEVER_FROM = 0.4;
 var INFECTION_FEVER_HP = 2;
 var INFECTION_FEVER_EVERY_MS = 5000;
 
+// Wounds (M9): a bad bite can open a bleeder — bleeding is a state, not a
+// number going down. HP drips away and the wound marks the ground behind
+// you until a bandage is pressed to it (H) or a first aid kit closes it.
+// Bandages come from supply drops and start in every survivor's pocket.
+var BLEED_CHANCE = 0.3;
+var BLEED_HP = 2;
+var BLEED_EVERY_MS = 2500;
+var PLAYER_START_BANDAGES = 1;
+var SUPPLY_BANDAGES = 2;
+var BANDAGE_HEAL = 10;
+
 // Barricading (M5): boards come from supply drops; B nails one up in front
 // of you. Barricades stop zombies (never survivors), and the horde tears
 // through them given time.
@@ -172,6 +183,8 @@ function Game_Server() {
     this.events = [];
     this.deaths = []; // gore feed: where zombies fell this snapshot, for corpse decals
     this.hits = [];   // gore feed: non-fatal wounds this snapshot, for blood decals
+    this.shots = [];  // combat feed: bow releases this snapshot, for release-flash effects
+    this.shoves = []; // combat feed: melee shoves this snapshot, for the visible arc
     this.sockets = {}; // id -> ws
 }
 
@@ -257,6 +270,11 @@ Game_Server.prototype.handle_message = function(id, message) {
                 this.player_barricade(player);
             }
             break;
+        case 'bandage':
+            if (player && player.alive) {
+                this.player_bandage(player);
+            }
+            break;
     }
 };
 
@@ -289,7 +307,10 @@ Game_Server.prototype.spawn_player = function(id, name) {
         infected: false,
         infection: 0,
         infected_at: 0,
-        last_fever: 0
+        last_fever: 0,
+        bleeding: false,
+        last_bleed: 0,
+        bandages: PLAYER_START_BANDAGES
     };
     this.events.push(name + ' joined the group. Survive together.');
     var ws = this.sockets[id];
@@ -319,6 +340,16 @@ Game_Server.prototype.player_shoot = function(player) {
         owner: player.id,
         expires: Date.now() + PROJECTILE_TTL_MS
     };
+    // Combat feed: every client renders the release (flash, shake) even
+    // for shots fired by someone across the street.
+    if (this.shots.length < 40) {
+        this.shots.push({
+            id: player.id,
+            x: Math.round(player.x),
+            y: Math.round(player.y),
+            rotation: Math.round(player.rotation * 100) / 100
+        });
+    }
 };
 
 Game_Server.prototype.player_melee = function(player) {
@@ -332,21 +363,48 @@ Game_Server.prototype.player_melee = function(player) {
     }
     player.stamina -= MELEE_STAMINA_COST;
     player.last_melee = now;
+    var connected = 0;
     for (var zid in this.zombies) {
         var zombie = this.zombies[zid];
         var dx = zombie.x - player.x;
         var dy = zombie.y - player.y;
         if (dx * dx + dy * dy <= MELEE_RANGE * MELEE_RANGE) {
             var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            var shove_dir = Math.atan2(dy, dx);
             var kicked = collide_circle_obstacles(
                 clamp(zombie.x + (dx / dist) * MELEE_KNOCKBACK, 0, WORLD_WIDTH),
                 clamp(zombie.y + (dy / dist) * MELEE_KNOCKBACK, 0, WORLD_HEIGHT),
                 zombie.radius || 12);
             zombie.x = kicked.x;
             zombie.y = kicked.y;
-            this.damage_zombie(zombie, MELEE_DAMAGE, player);
+            connected += 1;
+            this.damage_zombie(zombie, MELEE_DAMAGE, player, shove_dir);
         }
     }
+    // Combat feed: the swing itself is visible to everyone — an arc in
+    // front of the shover — whether or not it connected.
+    if (this.shoves.length < 40) {
+        this.shoves.push({
+            id: player.id,
+            x: Math.round(player.x),
+            y: Math.round(player.y),
+            rotation: Math.round(player.rotation * 100) / 100,
+            connected: connected
+        });
+    }
+};
+
+Game_Server.prototype.player_bandage = function(player) {
+    // Pressing a bandage to a wound (H): stops a bleed and closes a little
+    // of the damage. Wasting one on an unbroken skin is refused.
+    if ((player.bandages || 0) <= 0) { return; }
+    if (!player.bleeding && player.hp >= PLAYER_MAX_HP) { return; }
+    player.bandages -= 1;
+    var was_bleeding = player.bleeding;
+    player.bleeding = false;
+    player.hp = Math.min(PLAYER_MAX_HP, player.hp + BANDAGE_HEAL);
+    this.events.push(player.name + (was_bleeding ?
+        ' pressed a bandage to the wound.' : ' wrapped a bandage tight.'));
 };
 
 Game_Server.prototype.player_barricade = function(player) {
@@ -411,14 +469,17 @@ Game_Server.prototype.damage_barricade = function(barricade, amount) {
     }
 };
 
-Game_Server.prototype.damage_zombie = function(zombie, amount, player) {
+Game_Server.prototype.damage_zombie = function(zombie, amount, player, dir) {
     zombie.hp -= amount;
+    // Impact direction rides along so clients can spray blood through the
+    // wound and flinch/fell the body away from the blow.
+    var impact_dir = typeof dir === 'number' ? Math.round(dir * 100) / 100 : null;
     if (zombie.hp <= 0) {
         delete this.zombies[zombie.id];
         // The kill leaves a mark on the world: clients stamp a persistent
         // corpse and blood pool where it dropped.
         if (this.deaths.length < 40) {
-            this.deaths.push({ x: Math.round(zombie.x), y: Math.round(zombie.y), kind: zombie.kind || 'walker' });
+            this.deaths.push({ x: Math.round(zombie.x), y: Math.round(zombie.y), kind: zombie.kind || 'walker', dir: impact_dir });
         }
         this.events.push(player.name + ' put one down.');
         // Kills are the group's currency: every KILLS_PER_TOKEN buys one
@@ -434,7 +495,7 @@ Game_Server.prototype.damage_zombie = function(zombie, amount, player) {
         }
     }
     else if (this.hits.length < 40) {
-        this.hits.push({ x: Math.round(zombie.x), y: Math.round(zombie.y) });
+        this.hits.push({ x: Math.round(zombie.x), y: Math.round(zombie.y), id: zombie.id, dir: impact_dir });
     }
 };
 
@@ -473,6 +534,7 @@ Game_Server.prototype.start_wave = function() {
             player.ammo = Math.max(player.ammo, 8);
             player.infected = false;
             player.infection = 0;
+            player.bleeding = false;
             player.x = WORLD_WIDTH / 2;
             player.y = WORLD_HEIGHT / 2;
         }
@@ -530,6 +592,8 @@ Game_Server.prototype.tick_supply_drop = function(now) {
             player.ammo += SUPPLY_AMMO;
             player.hp = Math.min(PLAYER_MAX_HP, player.hp + SUPPLY_HP);
             player.boards = (player.boards || 0) + SUPPLY_BOARDS;
+            player.bandages = (player.bandages || 0) + SUPPLY_BANDAGES;
+            player.bleeding = false; // the crate's meds close open wounds
             if (player.infected) {
                 // The cure is taken in silence; nobody else has to know.
                 player.infected = false;
@@ -660,6 +724,23 @@ Game_Server.prototype.tick_players = function(dt, now) {
         var player = this.players[pid];
         if (!player.alive) { continue; }
         player.stamina = Math.min(STAMINA_MAX, (player.stamina || 0) + STAMINA_REGEN_PER_S * dt);
+        // An open bleeder drains on its own clock and drips a trail (the
+        // hits feed stamps blood decals on every client) until it is
+        // bandaged, patched with a kit, or it finishes you.
+        if (player.bleeding && now - (player.last_bleed || 0) >= BLEED_EVERY_MS) {
+            player.last_bleed = now;
+            player.hp -= BLEED_HP;
+            if (this.hits.length < 40) {
+                this.hits.push({ x: Math.round(player.x), y: Math.round(player.y), dir: null });
+            }
+            if (player.hp <= 0) {
+                player.hp = 0;
+                player.alive = false;
+                player.bleeding = false;
+                this.events.push(player.name + ' bled out on the street.');
+                continue;
+            }
+        }
         if (!player.infected) { continue; }
         // The bite festers on a clock. Vision goes first (the client reads
         // the progress), then the fever starts taking flesh, then you turn.
@@ -747,6 +828,12 @@ Game_Server.prototype.tick_zombies = function(dt, now) {
         else if (now - zombie.last_attack >= ZOMBIE_ATTACK_COOLDOWN_MS) {
             zombie.last_attack = now;
             target.hp -= (zombie.damage || ZOMBIE_DAMAGE);
+            // Teeth tear: a bite can open a bleeder that keeps taking flesh
+            // until it's bandaged. A wound is a state, not just lost HP.
+            if (target.hp > 0 && !target.bleeding && Math.random() < BLEED_CHANCE) {
+                target.bleeding = true;
+                target.last_bleed = now;
+            }
             // A bite can infect. No announcement — only the bitten player's
             // own client learns, and telling the team is up to them.
             if (target.alive && !target.infected && Math.random() < INFECTION_CHANCE) {
@@ -808,7 +895,7 @@ Game_Server.prototype.tick_projectiles = function(dt, now) {
             var dy = zombie.y - projectile.y;
             if (dx * dx + dy * dy <= PROJECTILE_HIT_RADIUS * PROJECTILE_HIT_RADIUS) {
                 var owner = this.players[projectile.owner] || { name: 'Someone' };
-                this.damage_zombie(zombie, PROJECTILE_DAMAGE, owner);
+                this.damage_zombie(zombie, PROJECTILE_DAMAGE, owner, projectile.rotation);
                 delete this.projectiles[id];
                 break;
             }
@@ -830,8 +917,10 @@ Game_Server.prototype.tick_pickups = function() {
                     this.events.push(player.name + ' scavenged arrows.');
                 }
                 else {
+                    // A first aid kit: real healing, and it closes a bleeder.
                     player.hp = Math.min(PLAYER_MAX_HP, player.hp + 25);
-                    this.events.push(player.name + ' patched up.');
+                    player.bleeding = false;
+                    this.events.push(player.name + ' patched up with a first aid kit.');
                 }
                 delete this.pickups[id];
                 break;
@@ -849,7 +938,9 @@ Game_Server.prototype.build_snapshot = function() {
             rotation: p.rotation, hp: p.hp, ammo: p.ammo, alive: p.alive,
             stamina: Math.round(p.stamina || 0), boards: p.boards || 0,
             infected: !!p.infected,
-            infection: p.infected ? Math.round((p.infection || 0) * 100) / 100 : 0
+            infection: p.infected ? Math.round((p.infection || 0) * 100) / 100 : 0,
+            bleeding: !!p.bleeding,
+            bandages: p.bandages || 0
         });
     }
     var zombies = [];
@@ -902,7 +993,9 @@ Game_Server.prototype.build_snapshot = function() {
         },
         events: this.events.splice(0, this.events.length),
         deaths: this.deaths.splice(0, this.deaths.length),
-        hits: this.hits.splice(0, this.hits.length)
+        hits: this.hits.splice(0, this.hits.length),
+        shots: this.shots.splice(0, this.shots.length),
+        shoves: this.shoves.splice(0, this.shoves.length)
     };
     return snapshot;
 };
@@ -912,6 +1005,8 @@ Game_Server.prototype.broadcast_snapshot = function() {
         this.events.length = 0;
         this.deaths.length = 0;
         this.hits.length = 0;
+        this.shots.length = 0;
+        this.shoves.length = 0;
         return;
     }
     var payload = JSON.stringify(this.build_snapshot());

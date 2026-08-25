@@ -556,9 +556,11 @@ Atmosphere.prototype.update_fog = function() {
 
 // ---- Persistent gore: stamped into the decal canvas, never cleared ----
 
-Atmosphere.prototype.stamp_blood = function(x, y, heavy) {
+Atmosphere.prototype.stamp_blood = function(x, y, heavy, forced_dir) {
+    // forced_dir (optional): the impact direction — spatter throws through
+    // the wound rather than randomly.
     var ctx = this.decal_bmd.context;
-    var dir = Math.random() * Math.PI * 2;
+    var dir = typeof forced_dir === 'number' ? forced_dir : Math.random() * Math.PI * 2;
     var n = heavy ? 9 : 5;
     for (var i = 0; i < n; i++) {
         var throw_dist = Math.random() * (heavy ? 26 : 14);
@@ -571,9 +573,11 @@ Atmosphere.prototype.stamp_blood = function(x, y, heavy) {
     this.decal_bmd.dirty = true;
 };
 
-Atmosphere.prototype.stamp_corpse = function(x, y, kind) {
+Atmosphere.prototype.stamp_corpse = function(x, y, kind, fall_dir) {
     var ctx = this.decal_bmd.context;
-    var angle = Math.random() * Math.PI * 2;
+    // Bodies drop away from the blow that felled them (when known).
+    var angle = typeof fall_dir === 'number' ?
+        fall_dir + (Math.random() - 0.5) * 0.9 : Math.random() * Math.PI * 2;
     var crawler = kind === 'crawler';
     var runner = kind === 'runner';
 
@@ -582,9 +586,9 @@ Atmosphere.prototype.stamp_corpse = function(x, y, kind) {
     var px = x + (Math.random() - 0.5) * 8;
     var py = y + (Math.random() - 0.5) * 8;
     var pg = ctx.createRadialGradient(px, py, 1, px, py, pr);
-    pg.addColorStop(0, 'rgba(100,13,9,0.62)');
-    pg.addColorStop(0.7, 'rgba(84,11,8,0.38)');
-    pg.addColorStop(1, 'rgba(84,11,8,0)');
+    pg.addColorStop(0, 'rgba(104,13,9,0.75)');
+    pg.addColorStop(0.7, 'rgba(86,11,8,0.45)');
+    pg.addColorStop(1, 'rgba(86,11,8,0)');
     ctx.fillStyle = pg;
     ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2);
 
@@ -618,8 +622,8 @@ Atmosphere.prototype.stamp_corpse = function(x, y, kind) {
     draw_disc(ctx, 8.5, -4 + Math.random() * 8, 4.2);
     ctx.restore();
 
-    // Spatter flung outward past the body.
-    this.stamp_blood(x, y, true);
+    // Spatter flung outward past the body, along the fall.
+    this.stamp_blood(x, y, true, angle);
 };
 
 function draw_soft_ellipse(ctx, x, y, rx, ry) {
@@ -904,6 +908,13 @@ Atmosphere.prototype.update_post = function(hp01, alive) {
         this.red_vignette_sprite.alpha = crit > 0 ?
             crit * (0.78 + 0.22 * Math.sin(t * 5.2)) : 0;
         if (crit > 0) { this.hurt_sprite.alpha += 0.06 * Math.sin(t * 5.2) * crit; }
+        // An open bleeder (M9) seeps at the edges even before HP is
+        // critical: a slow red pulse that says "deal with this".
+        if (this.state.own_bleeding) {
+            this.red_vignette_sprite.alpha = Math.max(
+                this.red_vignette_sprite.alpha,
+                0.3 + 0.14 * (0.5 + 0.5 * Math.sin(t * 3.1)));
+        }
     }
     else {
         // Down: nearly everything drains out of the frame.

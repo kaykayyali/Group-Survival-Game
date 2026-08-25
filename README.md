@@ -22,6 +22,9 @@ browser windows for co-op — everyone shares one world.
 - **Check your quiver**: R (the arrow count only surfaces when you check or it changes)
 - **Barricade**: B nails boards across the street in front of you — zombies tear
   at them instead of walking through; boards come from supply drops
+- **Bandage**: H presses a bandage to an open wound. A bad bite can leave you
+  **bleeding** — HP drips away and you trail blood until it's wrapped, a first
+  aid kit closes it, or you bleed out
 - Every 3rd wave a **helicopter supply drop** lands under a flare: arrows, meds,
   boards — and quietly, the cure
 - **Respawn tokens**: every 10 kills earns the group one. Death is sticky — a

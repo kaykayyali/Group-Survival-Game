@@ -76,6 +76,11 @@ Main_Player.prototype.update = function() {
     if ((this.keys.fire.isDown || pointer.leftButton.isDown) && now - this.last_shot > 250) {
         this.last_shot = now;
         this.client.send({ type: 'shoot' });
+        // Immediate local feedback (release flash, camera kick); the state
+        // gates it on actually having an arrow to loose.
+        if (window.Group_Survive && Group_Survive.on_local_fire) {
+            Group_Survive.on_local_fire(this.sprite.x, this.sprite.y, this.sprite.rotation);
+        }
     }
     if (this.keys.melee.isDown && now - this.last_melee_sent > 400) {
         this.last_melee_sent = now;

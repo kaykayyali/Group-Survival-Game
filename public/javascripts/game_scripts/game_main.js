@@ -133,6 +133,61 @@ Group_Survive_State.prototype = {
         plank_bmd.dirty = true;
         this.barricade_bmd = plank_bmd;
 
+        // ---- Combat effect textures (all transient, all generated) ----
+
+        // Bow-release flash: a snap of pale warm light at the string. Small
+        // and gone in a few frames — a release, not an explosion.
+        var flash_bmd = this.game.make.bitmapData(56, 56);
+        var flctx = flash_bmd.context;
+        var flg = flctx.createRadialGradient(28, 28, 1, 28, 28, 27);
+        flg.addColorStop(0, 'rgba(255,244,215,1)');
+        flg.addColorStop(0.3, 'rgba(255,220,160,0.6)');
+        flg.addColorStop(1, 'rgba(255,195,115,0)');
+        flctx.fillStyle = flg;
+        flctx.fillRect(0, 0, 56, 56);
+        flash_bmd.dirty = true;
+        this.muzzle_flash_bmd = flash_bmd;
+
+        // Dust motes kicked off the string with the flash.
+        var spark_bmd = this.game.make.bitmapData(3, 3);
+        spark_bmd.context.fillStyle = 'rgba(255,231,188,0.9)';
+        spark_bmd.context.fillRect(0, 0, 3, 3);
+        spark_bmd.dirty = true;
+        this.spark_bmd = spark_bmd;
+
+        // Arrow tracer: a thin pale streak trailing the shaft in flight —
+        // how you see your shot travel in the dark.
+        var streak_bmd = this.game.make.bitmapData(34, 3);
+        var trctx = streak_bmd.context;
+        var trg = trctx.createLinearGradient(0, 0, 34, 0);
+        trg.addColorStop(0, 'rgba(222,226,214,0)');
+        trg.addColorStop(1, 'rgba(230,234,222,0.75)');
+        trctx.fillStyle = trg;
+        trctx.fillRect(0, 0, 34, 3);
+        streak_bmd.dirty = true;
+        this.tracer_bmd = streak_bmd;
+
+        // Shove arc: a pale sweep in front of the shover, drawn facing +x.
+        // The pivot sits at (14, 48) so the arc swings ahead of the body.
+        var arc_bmd = this.game.make.bitmapData(96, 96);
+        var actx = arc_bmd.context;
+        actx.strokeStyle = 'rgba(206,212,200,0.30)';
+        actx.lineWidth = 14;
+        actx.lineCap = 'round';
+        actx.beginPath();
+        actx.arc(14, 48, 30, -0.8, 0.8);
+        actx.stroke();
+        actx.strokeStyle = 'rgba(216,222,210,0.8)';
+        actx.lineWidth = 6;
+        actx.beginPath();
+        actx.arc(14, 48, 34, -0.95, 0.95);
+        actx.stroke();
+        arc_bmd.dirty = true;
+        this.shove_arc_bmd = arc_bmd;
+
+        // Transient combat effects, decayed per frame by update_effects.
+        this.effect_sprites = [];
+
         // Flare glow: the one thing that burns through the dark.
         var flare_bmd = this.game.make.bitmapData(110, 110);
         var fctx = flare_bmd.context;
@@ -205,21 +260,161 @@ Group_Survive_State.prototype = {
             this.game.cache.addSpriteSheet('zombie_' + kind, '', bmd.canvas, spec.fw, spec.fh, 4);
         }
     },
-    spawn_blood_burst: function(x, y, big) {
+    spawn_blood_burst: function(x, y, big, dir) {
         // Transient spray on wounds and kills; the permanent mark is
-        // stamped into the atmosphere's decal layer separately.
-        var count = big ? 10 : 5;
+        // stamped into the atmosphere's decal layer separately. When the
+        // impact direction is known the spray throws through the wound,
+        // with a little backspatter toward the shooter.
+        var count = big ? 12 : 6;
         for (var i = 0; i < count; i++) {
             var sprite = this.game.add.sprite(x, y, this.blood_particle_bmd);
             sprite.anchor.set(0.5);
-            var angle = Math.random() * Math.PI * 2;
-            var speed = 30 + Math.random() * (big ? 130 : 90);
+            sprite.scale.set(0.8 + Math.random() * (big ? 0.9 : 0.5));
+            var angle, speed;
+            if (typeof dir === 'number') {
+                angle = dir + (Math.random() - 0.5) * 1.1;
+                if (Math.random() < 0.22) { angle += Math.PI; } // backspatter
+                speed = 40 + Math.random() * (big ? 150 : 110);
+            }
+            else {
+                angle = Math.random() * Math.PI * 2;
+                speed = 30 + Math.random() * (big ? 130 : 90);
+            }
             this.blood_particles.push({
                 sprite: sprite,
                 vx: Math.cos(angle) * speed,
                 vy: Math.sin(angle) * speed,
                 life: 0.25 + Math.random() * 0.3
             });
+        }
+    },
+    // ---- Transient combat effects: flashes, arcs, falling bodies ----
+    add_effect: function(sprite, ttl, options) {
+        options = options || {};
+        this.effect_sprites.push({
+            sprite: sprite,
+            ttl: ttl,
+            life: ttl,
+            grow: options.grow || 0,
+            spin: options.spin || 0,
+            base_alpha: sprite.alpha,
+            base_scale_x: sprite.scale.x,
+            base_scale_y: sprite.scale.y
+        });
+    },
+    update_effects: function() {
+        var dt = this.game.time.physicsElapsed;
+        for (var i = this.effect_sprites.length - 1; i >= 0; i--) {
+            var e = this.effect_sprites[i];
+            e.life -= dt;
+            if (e.life <= 0) {
+                e.sprite.destroy();
+                this.effect_sprites.splice(i, 1);
+                continue;
+            }
+            var t = e.life / e.ttl; // 1 -> 0
+            e.sprite.alpha = e.base_alpha * t;
+            if (e.grow) {
+                var s = 1 + e.grow * (1 - t);
+                e.sprite.scale.set(e.base_scale_x * s, e.base_scale_y * s);
+            }
+            if (e.spin) { e.sprite.rotation += e.spin * dt; }
+        }
+    },
+    spawn_release_flash: function(x, y, rotation) {
+        // The loosed shot: a snap of light at the bow tip and a couple of
+        // dust motes off the string. The flashlight surges with it too
+        // (atmosphere reads last_shot).
+        var tip_x = x + Math.cos(rotation) * 20;
+        var tip_y = y + Math.sin(rotation) * 20;
+        var flash = this.game.add.sprite(tip_x, tip_y, this.muzzle_flash_bmd);
+        flash.anchor.set(0.5);
+        flash.blendMode = PIXI.blendModes.ADD;
+        flash.alpha = 0.95;
+        this.add_effect(flash, 0.11, { grow: 0.7 });
+        // A brief lance of light thrown down the shot line.
+        var lance = this.game.add.sprite(
+            x + Math.cos(rotation) * 44, y + Math.sin(rotation) * 44, this.muzzle_flash_bmd);
+        lance.anchor.set(0.5);
+        lance.rotation = rotation;
+        lance.scale.set(2.3, 0.42);
+        lance.blendMode = PIXI.blendModes.ADD;
+        lance.alpha = 0.6;
+        this.add_effect(lance, 0.09, { grow: 0.5 });
+        for (var i = 0; i < 3; i++) {
+            var mote = this.game.add.sprite(tip_x, tip_y, this.spark_bmd);
+            mote.anchor.set(0.5);
+            var a = rotation + (Math.random() - 0.5) * 0.9;
+            var sp = 60 + Math.random() * 90;
+            this.blood_particles.push({
+                sprite: mote,
+                vx: Math.cos(a) * sp,
+                vy: Math.sin(a) * sp,
+                life: 0.12 + Math.random() * 0.12
+            });
+        }
+    },
+    on_local_fire: function(x, y, rotation) {
+        // Called by Main_Player the instant a shot is sent; only render the
+        // release if there is actually an arrow to loose.
+        if (this.current_ammo <= 0) { return; }
+        this.spawn_release_flash(x, y, rotation);
+        this.game.camera.shake(0.0016, 60);
+    },
+    spawn_shove_arc: function(x, y, rotation, connected) {
+        var arc = this.game.add.sprite(x, y, this.shove_arc_bmd);
+        arc.anchor.set(14 / 96, 0.5);
+        arc.rotation = rotation;
+        arc.alpha = connected ? 0.9 : 0.55;
+        this.add_effect(arc, 0.28, { grow: 0.5 });
+        if (connected && this.is_near_camera(x, y, 340)) {
+            this.game.camera.shake(0.002, 80);
+        }
+    },
+    flinch_zombie: function(id, dir) {
+        // A hit reads on the body: a lurch away from the impact and a brief
+        // pale shock before the blood tint settles back in.
+        var sprite = this.zombie_sprites[id];
+        if (!sprite) { return; }
+        var d = typeof dir === 'number' ? dir : Math.random() * Math.PI * 2;
+        sprite.flinch_x = Math.cos(d) * 9;
+        sprite.flinch_y = Math.sin(d) * 9;
+        sprite.flash_until = this.game.time.now + 90;
+    },
+    spawn_death_collapse: function(x, y, kind, dir) {
+        // The body goes down where it stood: the live sprite is pruned the
+        // same snapshot, so a brief falling twin sells the collapse before
+        // the permanent corpse decal underneath takes over.
+        var fall = this.game.add.sprite(x, y, 'zombie_' + (kind || 'walker'));
+        fall.anchor.set(0.5);
+        fall.rotation = typeof dir === 'number' ? dir : Math.random() * Math.PI * 2;
+        fall.tint = 0x8d857a;
+        fall.alpha = 0.9;
+        var spin = (Math.random() < 0.5 ? -1 : 1) * (kind === 'crawler' ? 1.1 : 2.4);
+        this.add_effect(fall, 0.38, { grow: -0.3, spin: spin });
+    },
+    is_near_camera: function(x, y, range) {
+        var cam = this.game.camera;
+        var dx = x - (cam.x + cam.width / 2);
+        var dy = y - (cam.y + cam.height / 2);
+        return dx * dx + dy * dy < range * range;
+    },
+    update_projectile_motion: function() {
+        // Arrows fly, not teleport: dead-reckon each shaft forward at the
+        // server's speed between 15Hz snapshots, easing onto the corrected
+        // position, with the tracer streak riding its tail.
+        var now = this.game.time.now;
+        for (var id in this.projectile_sprites) {
+            var e = this.projectile_sprites[id];
+            var t = Math.min(0.2, (now - e.base_t) / 1000);
+            var px = e.base_x + Math.cos(e.rotation) * 600 * t;
+            var py = e.base_y + Math.sin(e.rotation) * 600 * t;
+            e.sprite.x += (px - e.sprite.x) * 0.55;
+            e.sprite.y += (py - e.sprite.y) * 0.55;
+            e.sprite.rotation = e.rotation;
+            e.streak.x = e.sprite.x - Math.cos(e.rotation) * 8;
+            e.streak.y = e.sprite.y - Math.sin(e.rotation) * 8;
+            e.streak.rotation = e.rotation;
         }
     },
     update_blood_particles: function() {
@@ -265,6 +460,25 @@ Group_Survive_State.prototype = {
             }
             else {
                 sprite.rotation = sprite.heading + Math.sin(t * 3.1 + phase) * 0.1;
+            }
+            // Hit-flinch: a decaying lurch away from the impact; the easing
+            // above pulls the body back onto its server position.
+            if (sprite.flinch_x || sprite.flinch_y) {
+                sprite.x += sprite.flinch_x;
+                sprite.y += sprite.flinch_y;
+                sprite.flinch_x *= 0.72;
+                sprite.flinch_y *= 0.72;
+                if (Math.abs(sprite.flinch_x) + Math.abs(sprite.flinch_y) < 0.25) {
+                    sprite.flinch_x = 0;
+                    sprite.flinch_y = 0;
+                }
+            }
+            // Brief pale shock on impact, then back to the blood tint.
+            if (sprite.flash_until && this.game.time.now < sprite.flash_until) {
+                sprite.tint = 0xe3d2c8;
+            }
+            else if (sprite.health_tint !== undefined) {
+                sprite.tint = sprite.health_tint;
             }
             if (sprite.eyes) {
                 sprite.eyes.x = sprite.x;
@@ -350,6 +564,22 @@ Group_Survive_State.prototype = {
                 self.display_new_message('no boards left — the supply drops carry them');
             }
         });
+
+        // H presses a bandage to an open wound (M9). Bleeding is a state
+        // the server owns; the client only asks and narrates.
+        this.current_bandages = 0;
+        this.own_bleeding = false;
+        this.was_bleeding = false;
+        this.bandage_key = this.game.input.keyboard.addKey(Phaser.KeyCode.H);
+        this.game.input.keyboard.addKeyCapture([Phaser.KeyCode.H]);
+        this.bandage_key.onDown.add(function() {
+            if (self.current_bandages > 0) {
+                self.client.send({ type: 'bandage' });
+            }
+            else {
+                self.display_new_message('no bandages left — kits and supply drops carry them');
+            }
+        });
     },
     refresh_ammo_display: function() {
         // Rebuild the transient quiver readout: one tally per arrow,
@@ -399,6 +629,8 @@ Group_Survive_State.prototype = {
         this.main_player.update();
         this.update_zombie_motion();
         this.update_blood_particles();
+        this.update_projectile_motion();
+        this.update_effects();
         if (this.atmosphere) {
             this.atmosphere.update();
         }
@@ -524,9 +756,10 @@ Group_Survive_State.prototype = {
             // toward it every frame and handles facing/wobble.
             sprite.target_x = zombie.x;
             sprite.target_y = zombie.y;
-            // Bloodied zombies darken toward red.
+            // Bloodied zombies darken toward red (applied per frame in
+            // update_zombie_motion, where the hit-flash can override it).
             var health_ratio = Math.max(0, zombie.hp / zombie.max_hp);
-            sprite.tint = health_ratio > 0.66 ? 0xffffff : (health_ratio > 0.33 ? 0xc4a293 : 0xa8746a);
+            sprite.health_tint = health_ratio > 0.66 ? 0xffffff : (health_ratio > 0.33 ? 0xc4a293 : 0xa8746a);
         });
         prune(this.zombie_sprites, seen, function(sprite) {
             if (sprite.eyes) { sprite.eyes.destroy(); }
@@ -534,33 +767,61 @@ Group_Survive_State.prototype = {
         });
 
         // Gore feeds: kills leave permanent corpses and pools; wounds
-        // splatter the ground. Both persist in the atmosphere decal layer.
+        // splatter the ground and rock the body. Decals persist forever in
+        // the atmosphere layer; the burst, flinch and collapse are the
+        // moment itself.
         if (snapshot.deaths && this.atmosphere) {
             snapshot.deaths.forEach(function(death) {
-                self.atmosphere.stamp_corpse(death.x, death.y, death.kind);
-                self.spawn_blood_burst(death.x, death.y, true);
+                self.atmosphere.stamp_corpse(death.x, death.y, death.kind, death.dir);
+                self.spawn_blood_burst(death.x, death.y, true, death.dir);
+                self.spawn_death_collapse(death.x, death.y, death.kind, death.dir);
+                if (self.is_near_camera(death.x, death.y, 320)) {
+                    self.game.camera.shake(0.0018, 80);
+                }
             });
         }
         if (snapshot.hits && this.atmosphere) {
             snapshot.hits.forEach(function(hit) {
-                self.atmosphere.stamp_blood(hit.x, hit.y, false);
-                self.spawn_blood_burst(hit.x, hit.y, false);
+                self.atmosphere.stamp_blood(hit.x, hit.y, false, hit.dir);
+                self.spawn_blood_burst(hit.x, hit.y, false, hit.dir);
+                if (hit.id !== undefined) { self.flinch_zombie(hit.id, hit.dir); }
             });
         }
+        // Combat feeds: releases and shoves render on every client. The
+        // local shooter already flashed the instant they fired.
+        (snapshot.shots || []).forEach(function(shot) {
+            if (shot.id === self.client.player_id) { return; }
+            self.spawn_release_flash(shot.x, shot.y, shot.rotation);
+        });
+        (snapshot.shoves || []).forEach(function(shove) {
+            self.spawn_shove_arc(shove.x, shove.y, shove.rotation, shove.connected > 0);
+        });
 
         seen = {};
+        var snap_time = this.game.time.now;
         snapshot.projectiles.forEach(function(projectile) {
             seen[projectile.id] = true;
-            var sprite = self.projectile_sprites[projectile.id];
-            if (!sprite) {
-                sprite = self.projectile_sprites[projectile.id] = self.game.add.sprite(projectile.x, projectile.y, 'arrow');
+            var entry = self.projectile_sprites[projectile.id];
+            if (!entry) {
+                var streak = self.game.add.sprite(projectile.x, projectile.y, self.tracer_bmd);
+                streak.anchor.set(1, 0.5);
+                streak.alpha = 0.55;
+                var sprite = self.game.add.sprite(projectile.x, projectile.y, 'arrow');
                 sprite.anchor.set(0.5);
+                sprite.rotation = projectile.rotation;
+                entry = self.projectile_sprites[projectile.id] = { sprite: sprite, streak: streak };
             }
-            sprite.x = projectile.x;
-            sprite.y = projectile.y;
-            sprite.rotation = projectile.rotation;
+            // The server position is a baseline; update_projectile_motion
+            // dead-reckons the flight forward every frame from here.
+            entry.base_x = projectile.x;
+            entry.base_y = projectile.y;
+            entry.base_t = snap_time;
+            entry.rotation = projectile.rotation;
         });
-        prune(this.projectile_sprites, seen, function(sprite) { sprite.destroy(); });
+        prune(this.projectile_sprites, seen, function(entry) {
+            entry.sprite.destroy();
+            entry.streak.destroy();
+        });
 
         seen = {};
         snapshot.pickups.forEach(function(pickup) {
@@ -617,6 +878,11 @@ Group_Survive_State.prototype = {
 
         if (own) {
             this.main_player.apply_server_state(own);
+            // Taking a hit rocks the camera — you feel the teeth land.
+            if (this.last_own_hp !== undefined && own.alive && own.hp < this.last_own_hp) {
+                this.game.camera.shake(0.004, 140);
+            }
+            this.last_own_hp = own.hp;
             // No permanent counters: HP drives the Atmosphere post pass,
             // and the quiver readout only surfaces when the count changes.
             this.current_ammo = own.ammo;
@@ -640,6 +906,18 @@ Group_Survive_State.prototype = {
                 }
                 this.last_known_boards = this.current_boards;
             }
+            // Bleeding (M9): a wound is a state. The screen edges seep (the
+            // atmosphere reads own_bleeding) and the feed tells you once.
+            this.current_bandages = own.bandages || 0;
+            var bleeding_now = !!own.bleeding && own.alive;
+            if (bleeding_now && !this.was_bleeding) {
+                this.display_new_message('you are bleeding — H presses a bandage to it');
+            }
+            else if (!bleeding_now && this.was_bleeding && own.alive) {
+                this.display_new_message('the bleeding stops');
+            }
+            this.was_bleeding = bleeding_now;
+            this.own_bleeding = bleeding_now;
             // Infection: only your own client is told, and only you see the
             // veins creep in. Telling the others is your call.
             var infected_now = !!own.infected && own.alive;
