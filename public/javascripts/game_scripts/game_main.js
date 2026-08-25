@@ -89,6 +89,41 @@ Group_Survive_State.prototype = {
         surv.dirty = true;
         this.game.cache.addImage('survivor', '', surv.canvas);
 
+        // The downed survivor: face-down where they fell, blood spreading —
+        // a squad-mate going down is a consequence in the frame, and the
+        // body is the revive marker.
+        var down = this.game.make.bitmapData(48, 44);
+        var dctx = down.context;
+        dctx.save();
+        dctx.translate(24, 22);
+        var dg = dctx.createRadialGradient(2, 2, 1, 2, 2, 20);
+        dg.addColorStop(0, 'rgba(120,16,11,0.7)');
+        dg.addColorStop(1, 'rgba(96,12,8,0)');
+        dctx.fillStyle = dg;
+        dctx.fillRect(-20, -20, 44, 44);
+        dctx.lineCap = 'round';
+        dctx.strokeStyle = '#414639'; // arms flung forward
+        dctx.lineWidth = 3.4;
+        dctx.beginPath();
+        dctx.moveTo(3, -4); dctx.lineTo(14, -10);
+        dctx.moveTo(3, 4); dctx.lineTo(13, 9);
+        dctx.stroke();
+        dctx.strokeStyle = '#3a3f35'; // legs
+        dctx.lineWidth = 4.2;
+        dctx.beginPath();
+        dctx.moveTo(-5, -2); dctx.lineTo(-16, -6);
+        dctx.moveTo(-5, 3); dctx.lineTo(-17, 7);
+        dctx.stroke();
+        dctx.fillStyle = '#4a4f45'; // torso, face-down
+        dctx.beginPath();
+        dctx.ellipse ? dctx.ellipse(-1, 0, 8.5, 6.5, 0, 0, Math.PI * 2) : dctx.arc(-1, 0, 7.5, 0, Math.PI * 2);
+        dctx.fill();
+        dctx.fillStyle = '#8a7f6a'; // head turned aside
+        dctx.beginPath(); dctx.arc(7, 2, 4.2, 0, Math.PI * 2); dctx.fill();
+        dctx.restore();
+        down.dirty = true;
+        this.game.cache.addImage('survivor_down', '', down.canvas);
+
         // Blood particle for transient bursts (bright enough to read for a
         // beat even in the gloom before the permanent decal takes over).
         var blood_bmd = this.game.make.bitmapData(4, 4);
@@ -885,10 +920,22 @@ Group_Survive_State.prototype = {
             entry.label.x = player.x;
             entry.label.y = player.y - 26;
             entry.label.visible = player.alive;
+            if (!player.alive) {
+                if (!entry.down_sprite) {
+                    entry.down_sprite = self.game.add.sprite(player.x, player.y, 'survivor_down');
+                    entry.down_sprite.anchor.set(0.5);
+                    entry.down_sprite.rotation = player.rotation;
+                }
+            }
+            else if (entry.down_sprite) {
+                entry.down_sprite.destroy();
+                entry.down_sprite = null;
+            }
         });
         prune(this.remote_player_sprites, seen, function(entry) {
             entry.sprite.destroy();
             entry.label.destroy();
+            if (entry.down_sprite) { entry.down_sprite.destroy(); }
         });
 
         seen = {};
@@ -910,7 +957,7 @@ Group_Survive_State.prototype = {
                 sprite.animations.play('move', self.zombie_anim_fps[kind] + Math.random() * 1.5, true);
                 sprite.eyes = self.game.add.sprite(zombie.x, zombie.y, self.zombie_eyes_bmd);
                 sprite.eyes.anchor.set(0.5);
-                sprite.eyes.alpha = 0.45; // the body should lead, the eyes accent
+                sprite.eyes.alpha = 0.3; // out in the dark, eyes are all there is
                 if (kind === 'crawler') { sprite.eyes.scale.set(0.8); }
                 self.zombie_eyes_group.add(sprite.eyes);
             }
@@ -1052,6 +1099,18 @@ Group_Survive_State.prototype = {
 
         if (own) {
             this.main_player.apply_server_state(own);
+            // Your own body stays in the frame while you're down.
+            if (!own.alive) {
+                if (!this.own_down_sprite) {
+                    this.own_down_sprite = this.game.add.sprite(own.x, own.y, 'survivor_down');
+                    this.own_down_sprite.anchor.set(0.5);
+                    this.own_down_sprite.rotation = own.rotation;
+                }
+            }
+            else if (this.own_down_sprite) {
+                this.own_down_sprite.destroy();
+                this.own_down_sprite = null;
+            }
             // Taking a hit rocks the camera — you feel the teeth land.
             if (this.last_own_hp !== undefined && own.alive && own.hp < this.last_own_hp) {
                 this.game.camera.shake(0.004, 140);

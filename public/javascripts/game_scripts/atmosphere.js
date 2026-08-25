@@ -961,18 +961,46 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
         ctx.fillRect(sx - radius, sy - radius, radius * 2, radius * 2);
     }
 
-    // Moonlight catches the horde: a cold presence-glow around every
-    // zombie so bodies read as half-seen shapes in the dark — threats you
-    // read by silhouette and motion, not UI markers.
+    // The dark HIDES the horde: a body is revealed only by actual light —
+    // the flashlight cone, a burning barrel, or point-blank range. Beyond
+    // that, nothing but the faint eye-shine. This is where the dread
+    // lives: what you cannot see is still coming.
     var zombie_sprites = this.state.zombie_sprites || {};
+    var lp = null;
+    if (alive && this.state.main_player && this.state.main_player.sprite) {
+        var mp = this.state.main_player.sprite;
+        lp = { x: mp.x - cam.x, y: mp.y - cam.y, rot: mp.rotation };
+    }
     for (var zid in zombie_sprites) {
         var zs = zombie_sprites[zid];
         var zx = zs.x - cam.x;
         var zy = zs.y - cam.y;
         if (zx < -56 || zx > w + 56 || zy < -56 || zy > h + 56) { continue; }
+        var reveal = 0;
+        if (lp) {
+            var pdx = zx - lp.x, pdy = zy - lp.y;
+            var pd = Math.sqrt(pdx * pdx + pdy * pdy);
+            // Point-blank: your own halo finds them.
+            if (pd < 150) { reveal = Math.max(reveal, 1 - (pd / 150) * 0.55); }
+            // Inside the beam.
+            if (pd < 440) {
+                var za = Math.atan2(pdy, pdx) - lp.rot;
+                while (za > Math.PI) { za -= Math.PI * 2; }
+                while (za < -Math.PI) { za += Math.PI * 2; }
+                if (Math.abs(za) < 0.62) { reveal = 1; }
+            }
+        }
+        for (var li = 0; li < visible_lights.length; li++) {
+            var vl = visible_lights[li];
+            var ldx = zx - vl.sx, ldy = zy - vl.sy;
+            var ld = Math.sqrt(ldx * ldx + ldy * ldy);
+            if (ld < vl.radius) { reveal = Math.max(reveal, 1 - ld / vl.radius); }
+        }
+        if (reveal < 0.05) { continue; }
+        var za2 = 0.68 * reveal;
         var zg = ctx.createRadialGradient(zx, zy, 3, zx, zy, 58);
-        zg.addColorStop(0, 'rgba(255,255,255,0.68)');
-        zg.addColorStop(0.5, 'rgba(255,255,255,0.28)');
+        zg.addColorStop(0, 'rgba(255,255,255,' + za2.toFixed(3) + ')');
+        zg.addColorStop(0.5, 'rgba(255,255,255,' + (za2 * 0.4).toFixed(3) + ')');
         zg.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = zg;
         ctx.fillRect(zx - 58, zy - 58, 116, 116);

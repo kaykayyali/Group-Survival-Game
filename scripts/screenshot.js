@@ -65,11 +65,11 @@ var CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-l
           var packed = 0;
           st.snap.zombies.forEach(function(z2) {
             var d2 = (z2.x - me.x) * (z2.x - me.x) + (z2.y - me.y) * (z2.y - me.y);
-            if (d2 < 460 * 460) { packed += 1; }
+            if (d2 < 420 * 420) { packed += 1; }
           });
           await page.mouse.move(box.x + sx, box.y + sy);
           await page.keyboard.down('Space');
-          if (!actionTaken && best < 350 * 350 && packed >= 4) {
+          if (!actionTaken && best < 350 * 350 && packed >= 5) {
             // Catch the release itself: flash, lance and tracer live for a
             // fraction of a second — shoot the frame inside that window.
             actionTaken = true;
@@ -83,7 +83,31 @@ var CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-l
         }
       }
     }
-    await page.waitForTimeout(250);
+    // Marsh drifts toward Ellis so the frames show survivors together.
+    try {
+      var rel = await page2.evaluate(function() {
+        if (!window.Group_Survive || !window.Group_Survive.client) { return null; }
+        var snap = window.Group_Survive.client.latest_snapshot;
+        if (!snap) { return null; }
+        var me = null, mate = null;
+        snap.players.forEach(function(p) {
+          if (p.name === 'Marsh') { me = p; }
+          if (p.name === 'Ellis') { mate = p; }
+        });
+        if (!me || !mate) { return null; }
+        return { dx: mate.x - me.x, dy: mate.y - me.y };
+      });
+      if (rel && (Math.abs(rel.dx) > 120 || Math.abs(rel.dy) > 120)) {
+        var fx = rel.dx > 0 ? 'd' : 'a';
+        var fy = rel.dy > 0 ? 's' : 'w';
+        await page2.keyboard.down(fx);
+        await page2.keyboard.down(fy);
+        await page2.waitForTimeout(220);
+        await page2.keyboard.up(fx);
+        await page2.keyboard.up(fy);
+      }
+    } catch (e) {}
+    await page.waitForTimeout(120);
   }
   if (!actionTaken) {
     await page.screenshot({ path: OUT + '/shot_action.png' });
@@ -130,6 +154,13 @@ var CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-l
       await page.waitForTimeout(300);
     }
   }
+  // The late shot is its own moment: move off, let the wave press in.
+  await page.keyboard.down('w');
+  await page.keyboard.down('a');
+  await page.waitForTimeout(900);
+  await page.keyboard.up('w');
+  await page.keyboard.up('a');
+  await page.waitForTimeout(3200);
   await page.screenshot({ path: OUT + '/shot_late.png' });
   await browser.close();
   console.log('screenshots written to ' + OUT);

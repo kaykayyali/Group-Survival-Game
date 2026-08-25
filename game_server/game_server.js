@@ -735,11 +735,9 @@ Game_Server.prototype.pick_zombie_kind = function() {
     return 'walker';
 };
 
-Game_Server.prototype.spawn_zombie = function() {
-    var id = 'z' + (this.next_id++);
-    // Spawn on a random edge of the world so the horde closes in. Bias
-    // most spawns toward the stretch of edge nearest a survivor so the
-    // mass is seen approaching, not just eventually arriving.
+// Where the next pack walks in from: a point on the world edge nearest a
+// survivor (mostly), so the mass is SEEN approaching.
+Game_Server.prototype.pick_spawn_point = function() {
     var edge = Math.floor(Math.random() * 4);
     var x = Math.random() * WORLD_WIDTH;
     var y = Math.random() * WORLD_HEIGHT;
@@ -749,7 +747,6 @@ Game_Server.prototype.spawn_zombie = function() {
     }
     if (alive_players.length > 0 && Math.random() < 0.85) {
         var mark = alive_players[Math.floor(Math.random() * alive_players.length)];
-        // Tight spread: the mass arrives together, not as stragglers.
         x = clamp(mark.x + (Math.random() - 0.5) * 560, 0, WORLD_WIDTH);
         y = clamp(mark.y + (Math.random() - 0.5) * 560, 0, WORLD_HEIGHT);
         // Snap to the nearest edge from that point.
@@ -762,6 +759,15 @@ Game_Server.prototype.spawn_zombie = function() {
     if (edge === 1) { y = WORLD_HEIGHT; }
     if (edge === 2) { x = 0; }
     if (edge === 3) { x = WORLD_WIDTH; }
+    return { x: x, y: y };
+};
+
+Game_Server.prototype.spawn_zombie = function(origin) {
+    var id = 'z' + (this.next_id++);
+    var point = origin || this.pick_spawn_point();
+    // Pack jitter: shoulder to shoulder around the pulse origin.
+    var x = clamp(point.x + (Math.random() - 0.5) * 130, 0, WORLD_WIDTH);
+    var y = clamp(point.y + (Math.random() - 0.5) * 130, 0, WORLD_HEIGHT);
     var kind = this.pick_zombie_kind();
     var stats = ZOMBIE_KINDS[kind];
     var max_hp = stats.hp_base + (this.wave - 1) * stats.hp_per_wave;
@@ -823,12 +829,29 @@ Game_Server.prototype.tick = function(dt) {
             }
         }
         else if (this.zombies_to_spawn > 0) {
-            this.spawn_accumulator += dt;
-            // Pour the horde in fast enough that it masses up on screen.
-            if (this.spawn_accumulator >= 0.15) {
-                this.spawn_accumulator = 0;
-                this.spawn_zombie();
-                this.zombies_to_spawn -= 1;
+            // The horde arrives in PULSES: a pack of bodies from one point,
+            // walking together — a mass closing in, not a trickle of
+            // stragglers from every compass direction.
+            if (!this.pulse || this.pulse.remaining === 0) {
+                if (!this.pulse || now >= this.pulse.cooldown_until) {
+                    this.pulse = {
+                        origin: this.pick_spawn_point(),
+                        remaining: Math.min(6, this.zombies_to_spawn),
+                        cooldown_until: now + 3200
+                    };
+                }
+            }
+            if (this.pulse && this.pulse.remaining > 0) {
+                this.spawn_accumulator += dt;
+                if (this.spawn_accumulator >= 0.12) {
+                    this.spawn_accumulator = 0;
+                    this.spawn_zombie(this.pulse.origin);
+                    this.pulse.remaining -= 1;
+                    this.zombies_to_spawn -= 1;
+                    if (this.pulse.remaining === 0) {
+                        this.pulse.cooldown_until = now + 3200;
+                    }
+                }
             }
         }
     }
