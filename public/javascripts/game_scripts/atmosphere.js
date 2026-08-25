@@ -583,7 +583,7 @@ Atmosphere.prototype.create_silhouette_layer = function() {
     var w = this.client.world.width, h = this.client.world.height;
     this.silhouette_bmd = this.game.add.bitmapData(w, h);
     this.silhouette_sprite = this.game.add.sprite(0, 0, this.silhouette_bmd);
-    this.silhouette_sprite.alpha = 0.11;
+    this.silhouette_sprite.alpha = 0.15;
     this.silhouette_painted = false;
 };
 
@@ -837,7 +837,7 @@ Atmosphere.prototype.create_overlays = function() {
     this.red_vignette_sprite.alpha = 0;
 
     // Standard black vignette, always present, deepens when hurt.
-    this.vignette_sprite = this.game.add.sprite(0, 0, this.make_vignette(w, h, '0,0,0', 0.82, 0.34));
+    this.vignette_sprite = this.game.add.sprite(0, 0, this.make_vignette(w, h, '0,0,0', 0.92, 0.3));
     this.vignette_sprite.fixedToCamera = true;
     this.vignette_sprite.alpha = 0.72;
 
@@ -949,7 +949,7 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
         var light = this.ambient_lights[i];
         var sx = light.x - cam.x;
         var sy = light.y - cam.y;
-        var radius = 165 * (0.8 + light.level * 0.25);
+        var radius = 190 * (0.8 + light.level * 0.25);
         if (sx < -radius || sx > w + radius || sy < -radius || sy > h + radius) { continue; }
         visible_lights.push({ sx: sx, sy: sy, radius: radius, level: light.level });
         var la = 0.62 + light.level * 0.28;
@@ -1024,6 +1024,9 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
         // blood, debris — instead of a lighter shade of gray.
         var len = 430;
         var half = flash ? 0.55 : 0.45;
+        // Three nested cones: wide soft spill, penumbra, then the core —
+        // the beam's edge is a gradient, never a hard polygon.
+        this.punch_cone(ctx, px, py, rot, half + 0.5, len * 0.6, 0.14 * intensity);
         this.punch_cone(ctx, px, py, rot, half + 0.22, len * 0.82, 0.34 * intensity);
         this.punch_cone(ctx, px, py, rot, half, len, (flash ? 1 : 0.99) * intensity);
 
@@ -1111,7 +1114,7 @@ Atmosphere.prototype.update_post = function(hp01, alive) {
     }
 
     // Film grain: cycle noise frames with jitter; heavier when hurt/dead.
-    var grain_alpha = (alive ? 0.06 + hurt * 0.09 : 0.16);
+    var grain_alpha = (alive ? 0.1 + hurt * 0.1 : 0.18);
     if (this.frame % 3 === 0) {
         this.grain_sprites[this.grain_index].visible = false;
         this.grain_index = (this.grain_index + 1) % this.grain_sprites.length;
@@ -1149,6 +1152,7 @@ Atmosphere.prototype.raise_overlays = function() {
     var state = this.state;
     if (state.hud_status) { world.bringToTop(state.hud_status); }
     if (state.hud_zone) { world.bringToTop(state.hud_zone); }
+    if (state.hud_zone_values) { world.bringToTop(state.hud_zone_values); }
     if (state.hud_wave) { world.bringToTop(state.hud_wave); }
     if (state.hud_dead) { world.bringToTop(state.hud_dead); }
     if (state.displayed_messages) {

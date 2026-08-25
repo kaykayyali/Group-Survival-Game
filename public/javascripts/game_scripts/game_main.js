@@ -178,6 +178,33 @@ Group_Survive_State.prototype = {
 
         // ---- Combat effect textures (all transient, all generated) ----
 
+        // The fire axe, drawn along +x: worn haft, blood-caked head. Swept
+        // through the killing swing so melee reads as a weapon in hands.
+        var axe_bmd = this.game.make.bitmapData(46, 22);
+        var axctx = axe_bmd.context;
+        axctx.save();
+        axctx.translate(0, 11);
+        axctx.strokeStyle = '#5a4630';
+        axctx.lineWidth = 3;
+        axctx.lineCap = 'round';
+        axctx.beginPath();
+        axctx.moveTo(3, 0); axctx.lineTo(32, 0);
+        axctx.stroke();
+        axctx.fillStyle = '#8f2f24'; // the head, more blood than paint
+        axctx.beginPath();
+        axctx.moveTo(30, -9);
+        axctx.quadraticCurveTo(45, -7, 43, 3);
+        axctx.lineTo(33, 4);
+        axctx.closePath();
+        axctx.fill();
+        axctx.fillStyle = '#6d7076'; // a sliver of steel still shows
+        axctx.fillRect(41, -5, 3, 7);
+        axctx.fillStyle = 'rgba(70,12,8,0.8)';
+        axctx.fillRect(20, -2, 8, 3); // blood run down the haft
+        axctx.restore();
+        axe_bmd.dirty = true;
+        this.axe_bmd = axe_bmd;
+
         // Bow-release flash: a snap of pale warm light at the string. Small
         // and gone in a few frames — a release, not an explosion.
         var flash_bmd = this.game.make.bitmapData(56, 56);
@@ -296,6 +323,11 @@ Group_Survive_State.prototype = {
                 var ctx = bmd.context;
                 ctx.save();
                 ctx.translate(f * spec.fw, 0);
+                // Cold moonlight rim baked into every stroke: the halo the
+                // canvas shadow throws around each shape is what keeps a
+                // body readable as a body out past the light.
+                ctx.shadowColor = 'rgba(168,182,198,0.7)';
+                ctx.shadowBlur = 3;
                 draw_zombie_frame(ctx, kind, spec.fw / 2, spec.fh / 2, poses[f]);
                 ctx.restore();
             }
@@ -340,6 +372,7 @@ Group_Survive_State.prototype = {
             life: ttl,
             grow: options.grow || 0,
             spin: options.spin || 0,
+            sweep: options.sweep || false,
             base_alpha: sprite.alpha,
             base_scale_x: sprite.scale.x,
             base_scale_y: sprite.scale.y
@@ -362,6 +395,10 @@ Group_Survive_State.prototype = {
                 e.sprite.scale.set(e.base_scale_x * s, e.base_scale_y * s);
             }
             if (e.spin) { e.sprite.rotation += e.spin * dt; }
+            if (e.sweep && e.sprite.sweep_from !== undefined) {
+                e.sprite.rotation = e.sprite.sweep_from +
+                    (e.sprite.sweep_to - e.sprite.sweep_from) * (1 - t);
+            }
         }
     },
     spawn_release_flash: function(x, y, rotation) {
@@ -405,14 +442,29 @@ Group_Survive_State.prototype = {
         this.spawn_release_flash(x, y, rotation);
         this.game.camera.shake(0.0016, 60);
     },
-    spawn_shove_arc: function(x, y, rotation, connected) {
+    spawn_shove_arc: function(x, y, rotation, connected, swing) {
         var arc = this.game.add.sprite(x, y, this.shove_arc_bmd);
         arc.anchor.set(14 / 96, 0.5);
         arc.rotation = rotation;
         arc.alpha = connected ? 0.9 : 0.55;
-        this.add_effect(arc, 0.28, { grow: 0.5 });
+        if (swing) { arc.tint = 0xd8b48a; } // the killing swing runs warmer
+        this.add_effect(arc, swing ? 0.4 : 0.28, { grow: 0.5 });
+        if (swing) {
+            // The axe itself, swept through the arc — a weapon in hands,
+            // not an abstract gesture. Sweeps ~120 degrees over its life.
+            var axe = this.game.add.sprite(x, y, this.axe_bmd);
+            axe.anchor.set(0.1, 0.5);
+            axe.rotation = rotation - 1.05;
+            axe.sweep_from = rotation - 1.05;
+            axe.sweep_to = rotation + 1.05;
+            this.add_effect(axe, 0.4, { sweep: true });
+            if (connected) {
+                this.spawn_blood_burst(
+                    x + Math.cos(rotation) * 40, y + Math.sin(rotation) * 40, true, rotation);
+            }
+        }
         if (connected && this.is_near_camera(x, y, 340)) {
-            this.game.camera.shake(0.002, 80);
+            this.game.camera.shake(swing ? 0.004 : 0.002, swing ? 130 : 80);
         }
     },
     flinch_zombie: function(id, dir) {
@@ -552,13 +604,21 @@ Group_Survive_State.prototype = {
         // The one permanent readout, straight from the reference HUD: a
         // small serif tally top-left — wave, remaining, and the integrity
         // of the zones the group is defending. Dim, steady, no chrome.
+        // Two-tone like the reference: dark-gold labels, pale values.
         this.hud_zone = this.game.add.text(14, 12, '', {
             font: "13px Georgia, 'Times New Roman', serif",
-            fill: "#a99f8a", align: 'left', lineSpacing: 2
+            fill: "#8a7a5e", align: 'left', lineSpacing: 2
         });
         this.hud_zone.setShadow(1, 1, 'rgba(0,0,0,0.9)', 3);
         this.hud_zone.fixedToCamera = true;
-        this.hud_zone.alpha = 0.8;
+        this.hud_zone.alpha = 0.85;
+        this.hud_zone_values = this.game.add.text(112, 12, '', {
+            font: "13px Georgia, 'Times New Roman', serif",
+            fill: "#d3cdba", align: 'left', lineSpacing: 2
+        });
+        this.hud_zone_values.setShadow(1, 1, 'rgba(0,0,0,0.9)', 3);
+        this.hud_zone_values.fixedToCamera = true;
+        this.hud_zone_values.alpha = 0.85;
 
         this.hud_dead = this.game.add.text(this.game.camera.width / 2, this.game.camera.height / 2 - 12, '', {
             font: "22px Georgia, 'Times New Roman', serif", fill: "#6b2f27"
@@ -701,14 +761,15 @@ Group_Survive_State.prototype = {
         // Zone tally (reference-HUD style): WAVE / REMAINING / ZONE %s.
         var snap = this.client.latest_snapshot;
         if (snap && snap.wave && snap.wave.number > 0) {
-            var tally = 'WAVE ' + snap.wave.number +
-                '\nREMAINING ' + snap.wave.remaining;
+            var labels = 'WAVE\nREMAINING';
+            var values = snap.wave.number + '\n' + snap.wave.remaining;
             var zones = snap.zones || [];
             for (var zi = 0; zi < zones.length; zi++) {
-                tally += '\nZONE ' + zones[zi].id + ': ' +
-                    (zones[zi].integrity > 0 ? zones[zi].integrity + '%' : 'OVERRUN');
+                labels += '\nZONE ' + zones[zi].id + ':';
+                values += '\n' + (zones[zi].integrity > 0 ? zones[zi].integrity + '%' : 'OVERRUN');
             }
-            this.hud_zone.setText(tally);
+            this.hud_zone.setText(labels);
+            this.hud_zone_values.setText(values);
         }
 
         var dead_target = this.hud_dead.text.length > 0 ? 0.85 : 0;
@@ -884,7 +945,7 @@ Group_Survive_State.prototype = {
             self.spawn_release_flash(shot.x, shot.y, shot.rotation);
         });
         (snapshot.shoves || []).forEach(function(shove) {
-            self.spawn_shove_arc(shove.x, shove.y, shove.rotation, shove.connected > 0);
+            self.spawn_shove_arc(shove.x, shove.y, shove.rotation, shove.connected > 0, shove.swing === 1);
         });
 
         seen = {};

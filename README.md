@@ -29,7 +29,9 @@ browser windows for co-op — everyone shares one world.
 - Every 3rd wave a **helicopter supply drop** lands under a flare: arrows, meds,
   boards — and quietly, the cure
 - **Respawn tokens**: every 10 kills earns the group one. Death is sticky — a
-  fallen survivor only gets back up at the next wave if there's a token to spend
+  fallen survivor returns at the next wave only if there's a token to spend,
+  or mid-wave if a teammate stands over their body for a few exposed seconds
+  (also one token). Up to 8 survivors share a world
 - A bite can **infect** you. Only you see the veins creep in; the fever turns you
   in two minutes unless you reach a supply crate. Telling the team is your call
 - Zombies rarely drop **ammo** (yellow) and **health** (red cross); the drop is the real resupply

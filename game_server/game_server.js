@@ -81,6 +81,15 @@ var BARRICADE_PLACE_DIST = 34;
 var BARRICADE_COOLDOWN_MS = 900;
 
 var PLAYER_RADIUS = 14;
+var MAX_PLAYERS = 8;            // M12: up to eight survivors, like the bar
+
+// Mid-wave revival (M12): co-op means hands on a fallen teammate. A living
+// survivor standing over a downed one spends REVIVE_MS of exposure and one
+// respawn token to drag them back up mid-wave — kneeling next to a body
+// while the horde closes is the co-op tension the bar is built on.
+var REVIVE_RANGE = 44;
+var REVIVE_MS = 2500;
+var REVIVE_HP = 30;
 
 // Safe zones (M1): sandbagged positions the group is defending — the
 // Survival-mode objective. Part of the horde goes for them, not for you;
@@ -320,6 +329,13 @@ Game_Server.prototype.handle_message = function(id, message) {
 };
 
 Game_Server.prototype.spawn_player = function(id, name) {
+    if (Object.keys(this.players).length >= MAX_PLAYERS) {
+        var full_ws = this.sockets[id];
+        if (full_ws && full_ws.readyState === 1) {
+            full_ws.send(JSON.stringify({ type: 'full', max: MAX_PLAYERS }));
+        }
+        return;
+    }
     name = String(name || 'Survivor').slice(0, 20);
     // Joining an abandoned world: the leftover horde has converged on the
     // spawn by now and would ambush the new group instantly. Let it move
@@ -826,7 +842,34 @@ Game_Server.prototype.tick = function(dt) {
 Game_Server.prototype.tick_players = function(dt, now) {
     for (var pid in this.players) {
         var player = this.players[pid];
-        if (!player.alive) { continue; }
+        if (!player.alive) {
+            // A living teammate over the body pulls them back up — costs
+            // uninterrupted seconds in the open, and one token.
+            if (this.respawn_tokens > 0) {
+                var helper = null;
+                for (var hid in this.players) {
+                    var candidate = this.players[hid];
+                    if (!candidate.alive || hid === pid) { continue; }
+                    var hdx = candidate.x - player.x;
+                    var hdy = candidate.y - player.y;
+                    if (hdx * hdx + hdy * hdy <= REVIVE_RANGE * REVIVE_RANGE) { helper = candidate; break; }
+                }
+                if (helper) {
+                    player.revive_progress = (player.revive_progress || 0) + dt * 1000;
+                    if (player.revive_progress >= REVIVE_MS) {
+                        player.revive_progress = 0;
+                        this.respawn_tokens -= 1;
+                        player.alive = true;
+                        player.hp = REVIVE_HP;
+                        this.events.push(helper.name + ' drags ' + player.name + ' back to their feet.');
+                    }
+                }
+                else {
+                    player.revive_progress = 0;
+                }
+            }
+            continue;
+        }
         player.stamina = Math.min(STAMINA_MAX, (player.stamina || 0) + STAMINA_REGEN_PER_S * dt);
         // An open bleeder drains on its own clock and drips a trail (the
         // hits feed stamps blood decals on every client) until it is

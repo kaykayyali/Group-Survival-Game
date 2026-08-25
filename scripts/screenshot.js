@@ -83,6 +83,48 @@ var CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-l
   if (!actionTaken) {
     await page.screenshot({ path: OUT + '/shot_action.png' });
   }
+  // Melee moment: wait for a zombie at arm's length, then swing the axe
+  // and catch the sweep mid-arc.
+  var meleeDeadline = Date.now() + 16000;
+  var meleeTaken = false;
+  while (Date.now() < meleeDeadline && !meleeTaken) {
+    var ms = await page.evaluate(function() {
+      if (!window.Group_Survive || !window.Group_Survive.client) { return null; }
+      var snap = window.Group_Survive.client.latest_snapshot;
+      if (!snap) { return null; }
+      var me = null;
+      for (var i = 0; i < snap.players.length; i++) {
+        if (snap.players[i].name === 'Ellis') { me = snap.players[i]; }
+      }
+      if (!me || !snap.zombies.length) { return null; }
+      var best = Infinity, bz = null;
+      snap.zombies.forEach(function(z) {
+        var d = (z.x - me.x) * (z.x - me.x) + (z.y - me.y) * (z.y - me.y);
+        if (d < best) { best = d; bz = z; }
+      });
+      return { close: best < 110 * 110, dx: bz.x - me.x, dy: bz.y - me.y };
+    });
+    if (ms && ms.close) {
+      await page.keyboard.down('v');
+      await page.waitForTimeout(180);
+      await page.screenshot({ path: OUT + '/shot_melee.png' });
+      await page.keyboard.up('v');
+      meleeTaken = true;
+    }
+    else if (ms) {
+      // Walk toward the nearest zombie to force the encounter.
+      var kx = ms.dx > 20 ? 'd' : (ms.dx < -20 ? 'a' : null);
+      var ky = ms.dy > 20 ? 's' : (ms.dy < -20 ? 'w' : null);
+      if (kx) { await page.keyboard.down(kx); }
+      if (ky) { await page.keyboard.down(ky); }
+      await page.waitForTimeout(350);
+      if (kx) { await page.keyboard.up(kx); }
+      if (ky) { await page.keyboard.up(ky); }
+    }
+    else {
+      await page.waitForTimeout(300);
+    }
+  }
   await page.screenshot({ path: OUT + '/shot_late.png' });
   await browser.close();
   console.log('screenshots written to ' + OUT);
