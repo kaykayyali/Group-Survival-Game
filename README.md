@@ -17,7 +17,9 @@ browser windows for co-op — everyone shares one world.
 
 - **Move**: WASD or arrow keys
 - **Aim**: mouse (your flashlight follows your aim — light is a resource)
-- **Shoot**: left click or spacebar (arrows are scarce — count your shots)
+- **Shoot**: left click or spacebar (arrows are scarce — count your shots;
+  a missed arrow sticks where it lands and can be pulled back out; one that
+  finds flesh breaks)
 - **Melee shove**: F (non-lethal frontal push that buys space; cheap stamina)
 - **Melee swing**: V (the committed kill — narrow, slow, expensive stamina)
 - **Check your quiver**: R (the arrow count only surfaces when you check or it changes)
