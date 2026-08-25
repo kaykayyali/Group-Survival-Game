@@ -31,26 +31,65 @@ Game_Client.prototype.connect_to_socket_server = function(callback) {
 	// the page's own origin (host already includes the port when non-default,
 	// and works unchanged behind a reverse proxy).
 	var protocol = window.document.location.protocol === 'https:' ? 'wss://' : 'ws://';
-	this.socket_connection = new WebSocket(protocol + window.document.location.host);
-	this.socket_connection.onopen = function (event) {
-		console.log("Web Socket Connection Established.");
-		self.send({ type: 'join', name: Cookies.get('user-name') || 'Survivor' });
-		callback();
-	};
-	this.socket_connection.onmessage = function (event) {
-		var message;
-		try {
-			message = JSON.parse(event.data);
-		} catch (e) {
-			return;
-		}
-		self.handle_message(message);
-	};
-	this.socket_connection.onclose = function(event) {
-		if (Group_Survive && Group_Survive.show_disconnected) {
-			Group_Survive.show_disconnected();
-		}
-	};
+	var url = protocol + window.document.location.host;
+	// The very first connect right after a server restart can lose the race
+	// with the HTTP/WS server binding its port (surfaces as a browser
+	// "WebSocket connection failed" and, previously, a hung load). Retry the
+	// initial connect up to 3 times with a short backoff before giving up.
+	// Once a connection is actually established, the retry logic is disarmed
+	// and onclose reverts to the original show_disconnected behavior.
+	var INITIAL_RETRIES = 3;
+	var RETRY_DELAY_MS = 700;
+	var retries_left = INITIAL_RETRIES;
+
+	function attempt() {
+		var established = false;
+		var socket = new WebSocket(url);
+		self.socket_connection = socket;
+
+		socket.onopen = function (event) {
+			established = true;
+			console.log("Web Socket Connection Established.");
+			self.send({ type: 'join', name: Cookies.get('user-name') || 'Survivor' });
+			callback();
+		};
+		socket.onmessage = function (event) {
+			var message;
+			try {
+				message = JSON.parse(event.data);
+			} catch (e) {
+				return;
+			}
+			self.handle_message(message);
+		};
+		socket.onerror = function (event) {
+			// Errors are handled via onclose (which always follows), so the
+			// retry decision lives in one place and never fires twice.
+		};
+		socket.onclose = function(event) {
+			if (established) {
+				// An already-established connection dropped: keep the original
+				// behavior for a mid-game disconnect.
+				if (Group_Survive && Group_Survive.show_disconnected) {
+					Group_Survive.show_disconnected();
+				}
+				return;
+			}
+			// The initial connect never opened. Retry a few times before
+			// declaring failure back to the async.series callback.
+			if (retries_left > 0) {
+				retries_left -= 1;
+				console.log("Web Socket connect failed, retrying (" +
+					(INITIAL_RETRIES - retries_left) + "/" + INITIAL_RETRIES + ")...");
+				setTimeout(attempt, RETRY_DELAY_MS);
+			}
+			else {
+				callback('Unable to reach the game server. Please refresh to try again.');
+			}
+		};
+	}
+
+	attempt();
 };
 
 Game_Client.prototype.handle_message = function(message) {

@@ -252,7 +252,12 @@ Game_Server.prototype.handle_message = function(id, message) {
                 var resolved = collide_circle_obstacles(target_x, target_y, PLAYER_RADIUS);
                 player.x = resolved.x;
                 player.y = resolved.y;
-                player.rotation = Number(message.rotation) || 0;
+                // Reject non-finite rotation: Infinity/NaN would flow through
+                // cos/sin into projectile velocities and barricade positions as
+                // NaN and durably corrupt snapshots. (Number(x) || 0 lets
+                // Infinity through because it is truthy, so guard explicitly.)
+                var rot = Number(message.rotation);
+                player.rotation = isFinite(rot) ? rot : 0;
             }
             break;
         case 'shoot':
