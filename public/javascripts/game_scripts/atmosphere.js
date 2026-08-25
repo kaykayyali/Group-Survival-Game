@@ -36,6 +36,7 @@ Atmosphere = function(game, state) {
     this.create_static_map_layer();  // roads/buildings, painted when map data arrives
     this.create_decal_layer();       // persistent corpses and blood
     this.create_ambient_sources();
+    this.create_silhouette_layer();
     this.create_edge_fog();
     this.create_overlays();
     this.try_paint_map();
@@ -71,6 +72,7 @@ Atmosphere.prototype.try_paint_map = function() {
     if (this.map_painted || !this.client.map) { return; }
     this.map_painted = true;
     this.paint_static_map(this.client.map);
+    this.paint_silhouettes(this.client.map);
 };
 
 Atmosphere.prototype.paint_static_map = function(map) {
@@ -573,6 +575,56 @@ Atmosphere.prototype.create_ambient_sources = function() {
     });
 };
 
+Atmosphere.prototype.create_silhouette_layer = function() {
+    // Moonlight memory: a faint cold tracing of the world's big shapes —
+    // building parapets, wreck outlines, sandbag rings, the road's center
+    // dashes — rendered ABOVE the darkness so unlit space still reads as a
+    // place, the way NMRiH's darkest frames keep silhouette-level detail.
+    var w = this.client.world.width, h = this.client.world.height;
+    this.silhouette_bmd = this.game.add.bitmapData(w, h);
+    this.silhouette_sprite = this.game.add.sprite(0, 0, this.silhouette_bmd);
+    this.silhouette_sprite.alpha = 0.11;
+    this.silhouette_painted = false;
+};
+
+Atmosphere.prototype.paint_silhouettes = function(map) {
+    var ctx = this.silhouette_bmd.context;
+    var i, o;
+    ctx.strokeStyle = 'rgba(150,168,190,0.5)';
+    ctx.lineWidth = 1.5;
+    var obstacles = map.obstacles || [];
+    for (i = 0; i < obstacles.length; i++) {
+        o = obstacles[i];
+        // North and west edges only: one cold rim, not a wireframe box.
+        ctx.beginPath();
+        ctx.moveTo(o.x + o.w, o.y);
+        ctx.lineTo(o.x, o.y);
+        ctx.lineTo(o.x, o.y + o.h);
+        ctx.stroke();
+    }
+    var roads = map.roads || [];
+    ctx.fillStyle = 'rgba(160,170,180,0.35)';
+    for (i = 0; i < roads.length; i++) {
+        o = roads[i];
+        if (o.w > o.h) {
+            for (var x = o.x + 10; x < o.x + o.w; x += 52) { ctx.fillRect(x, o.y + o.h / 2 - 1, 22, 3); }
+        }
+        else {
+            for (var y = o.y + 10; y < o.y + o.h; y += 52) { ctx.fillRect(o.x + o.w / 2 - 1, y, 3, 22); }
+        }
+    }
+    var zones = map.zones || [];
+    ctx.strokeStyle = 'rgba(170,180,165,0.45)';
+    for (i = 0; i < zones.length; i++) {
+        o = zones[i];
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    this.silhouette_bmd.dirty = true;
+    this.silhouette_painted = true;
+};
+
 Atmosphere.prototype.create_edge_fog = function() {
     // Fog banks close off the world's edges — the horde walks out of them.
     // Rendered above the darkness mask so the mist reads even in the dark.
@@ -677,7 +729,7 @@ Atmosphere.prototype.stamp_corpse = function(x, y, kind, fall_dir) {
     var runner = kind === 'runner';
 
     // Blood pool first, off-center.
-    var pr = crawler ? 13 + Math.random() * 6 : 17 + Math.random() * 9;
+    var pr = crawler ? 17 + Math.random() * 7 : 22 + Math.random() * 10;
     var px = x + (Math.random() - 0.5) * 8;
     var py = y + (Math.random() - 0.5) * 8;
     var pg = ctx.createRadialGradient(px, py, 1, px, py, pr);
@@ -690,6 +742,7 @@ Atmosphere.prototype.stamp_corpse = function(x, y, kind, fall_dir) {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
+    ctx.scale(1.35, 1.35); // bodies must read at street zoom
     var skin = crawler ? '#5e6253' : '#6b7160';
     var cloth = runner ? '#463f33' : '#3a3e35';
     // Splayed limbs: lines with round caps at broken angles.
@@ -917,12 +970,12 @@ Atmosphere.prototype.draw_darkness = function(hp01, alive) {
         var zx = zs.x - cam.x;
         var zy = zs.y - cam.y;
         if (zx < -56 || zx > w + 56 || zy < -56 || zy > h + 56) { continue; }
-        var zg = ctx.createRadialGradient(zx, zy, 2, zx, zy, 48);
-        zg.addColorStop(0, 'rgba(255,255,255,0.5)');
-        zg.addColorStop(0.55, 'rgba(255,255,255,0.2)');
+        var zg = ctx.createRadialGradient(zx, zy, 3, zx, zy, 58);
+        zg.addColorStop(0, 'rgba(255,255,255,0.68)');
+        zg.addColorStop(0.5, 'rgba(255,255,255,0.28)');
         zg.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = zg;
-        ctx.fillRect(zx - 48, zy - 48, 96, 96);
+        ctx.fillRect(zx - 58, zy - 58, 116, 116);
     }
 
     // Arrows in flight tear a sliver of visibility with them — the tracer
@@ -1077,6 +1130,9 @@ Atmosphere.prototype.raise_overlays = function() {
     // mask and post pass above them, and the HUD above everything.
     var world = this.game.world;
     world.bringToTop(this.darkness_sprite);
+    // The moonlight silhouette tracing sits just above the darkness so the
+    // world's big shapes stay legible even where no light reaches.
+    if (this.silhouette_sprite) { world.bringToTop(this.silhouette_sprite); }
     // Eye-shine floats above the darkness: pairs of pale eyes are how you
     // read the horde where no light reaches.
     if (this.state.zombie_eyes_group) { world.bringToTop(this.state.zombie_eyes_group); }

@@ -18,7 +18,8 @@ browser windows for co-op — everyone shares one world.
 - **Move**: WASD or arrow keys
 - **Aim**: mouse (your flashlight follows your aim — light is a resource)
 - **Shoot**: left click or spacebar (arrows are scarce — count your shots)
-- **Melee shove**: F (knocks zombies back; it costs stamina, so you can't spam it)
+- **Melee shove**: F (non-lethal frontal push that buys space; cheap stamina)
+- **Melee swing**: V (the committed kill — narrow, slow, expensive stamina)
 - **Check your quiver**: R (the arrow count only surfaces when you check or it changes)
 - **Barricade**: B nails boards across the street in front of you — zombies tear
   at them instead of walking through; boards come from supply drops

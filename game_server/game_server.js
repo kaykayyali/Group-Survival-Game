@@ -298,7 +298,12 @@ Game_Server.prototype.handle_message = function(id, message) {
             break;
         case 'melee':
             if (player && player.alive) {
-                this.player_melee(player);
+                this.player_melee(player, 'shove');
+            }
+            break;
+        case 'swing':
+            if (player && player.alive) {
+                this.player_melee(player, 'swing');
             }
             break;
         case 'barricade':
@@ -398,47 +403,66 @@ Game_Server.prototype.player_shoot = function(player) {
     }
 };
 
-Game_Server.prototype.player_melee = function(player) {
+// NMRiH separates the two melee intents: the SHOVE (F) is non-lethal — a
+// frontal push that buys space cheaply — while the SWING (V) is the
+// committed kill: narrower, slower, expensive, and it ends things. Both
+// are directional now: what's behind you stays behind you.
+Game_Server.prototype.player_melee = function(player, mode) {
+    var swing = mode === 'swing';
     var now = Date.now();
-    if (now - player.last_melee < MELEE_COOLDOWN_MS) {
+    var cooldown = swing ? 950 : MELEE_COOLDOWN_MS;
+    var cost = swing ? 38 : 22;
+    if (now - player.last_melee < cooldown) {
         return;
     }
-    // The shove costs something: swing on an empty tank and nothing happens.
-    if ((player.stamina || 0) < MELEE_STAMINA_COST) {
+    // Melee costs something: swing on an empty tank and nothing happens.
+    if ((player.stamina || 0) < cost) {
         return;
     }
-    player.stamina -= MELEE_STAMINA_COST;
+    player.stamina -= cost;
     player.last_melee = now;
+    var half_arc = swing ? 0.6 : 1.05;
+    var damage = swing ? 40 : 6;
+    var knockback = swing ? 24 : MELEE_KNOCKBACK;
     var connected = 0;
     for (var zid in this.zombies) {
         var zombie = this.zombies[zid];
         var dx = zombie.x - player.x;
         var dy = zombie.y - player.y;
-        if (dx * dx + dy * dy <= MELEE_RANGE * MELEE_RANGE) {
-            var dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            var shove_dir = Math.atan2(dy, dx);
-            var kicked = collide_circle_obstacles(
-                clamp(zombie.x + (dx / dist) * MELEE_KNOCKBACK, 0, WORLD_WIDTH),
-                clamp(zombie.y + (dy / dist) * MELEE_KNOCKBACK, 0, WORLD_HEIGHT),
-                zombie.radius || 12);
-            zombie.x = kicked.x;
-            zombie.y = kicked.y;
-            connected += 1;
-            this.damage_zombie(zombie, MELEE_DAMAGE, player, shove_dir);
-        }
+        if (dx * dx + dy * dy > MELEE_RANGE * MELEE_RANGE) { continue; }
+        var to_zombie = Math.atan2(dy, dx);
+        var off = Math.abs(angle_diff(to_zombie, player.rotation));
+        if (off > half_arc) { continue; }
+        var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        var kicked = collide_circle_obstacles(
+            clamp(zombie.x + (dx / dist) * knockback, 0, WORLD_WIDTH),
+            clamp(zombie.y + (dy / dist) * knockback, 0, WORLD_HEIGHT),
+            zombie.radius || 12);
+        zombie.x = kicked.x;
+        zombie.y = kicked.y;
+        connected += 1;
+        this.damage_zombie(zombie, damage, player, to_zombie);
     }
     // Combat feed: the swing itself is visible to everyone — an arc in
-    // front of the shover — whether or not it connected.
+    // front of the attacker — whether or not it connected.
     if (this.shoves.length < 40) {
         this.shoves.push({
             id: player.id,
             x: Math.round(player.x),
             y: Math.round(player.y),
             rotation: Math.round(player.rotation * 100) / 100,
-            connected: connected
+            connected: connected,
+            swing: swing ? 1 : 0
         });
     }
 };
+
+function angle_diff(a, b) {
+    var d = a - b;
+    while (d > Math.PI) { d -= Math.PI * 2; }
+    while (d < -Math.PI) { d += Math.PI * 2; }
+    return d;
+}
 
 Game_Server.prototype.player_bandage = function(player) {
     // Pressing a bandage to a wound (H): stops a bleed and closes a little

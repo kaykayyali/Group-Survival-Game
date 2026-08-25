@@ -64,12 +64,17 @@ var CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-l
           var sy = Math.min(box.height - 5, Math.max(5, z.y - st.cam.y));
           await page.mouse.move(box.x + sx, box.y + sy);
           await page.keyboard.down('Space');
-          await page.waitForTimeout(150);
-          await page.keyboard.up('Space');
           if (!actionTaken && best < 350 * 350) {
+            // Catch the release itself: flash, lance and tracer live for a
+            // fraction of a second — shoot the frame inside that window.
             actionTaken = true;
+            await page.waitForTimeout(80);
             await page.screenshot({ path: OUT + '/shot_action.png' });
           }
+          else {
+            await page.waitForTimeout(150);
+          }
+          await page.keyboard.up('Space');
         }
       }
     }

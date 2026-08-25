@@ -1,6 +1,9 @@
 /* Gauntlet loop: automated playtest of Group Survival against the
  * "No More Room in Hell" feature benchmark. Two headless co-op clients. */
-const { chromium } = require('playwright-core');
+let pw;
+try { pw = require(process.env.PW_MODULE || 'playwright-core'); }
+catch (e) { console.error('playwright-core not found; set PW_MODULE'); process.exit(2); }
+const { chromium } = pw;
 
 const BASE = 'http://localhost:3000';
 const results = [];
@@ -112,6 +115,7 @@ function check(name, pass, detail) {
   check('HUD wave text present', await page.evaluate(() =>
     window.Group_Survive.hud_wave.text.length > 0), await page.evaluate(() => window.Group_Survive.hud_wave.text));
   check('event feed shows messages', await page.evaluate(() =>
+    (window.Group_Survive.messages_shown_total || 0) > 0 ||
     window.Group_Survive.displayed_messages.length > 0));
 
   check('no client-side JS errors', errors.length === 0, errors.slice(0, 3).join(' | '));

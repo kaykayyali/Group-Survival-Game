@@ -198,15 +198,15 @@ Group_Survive_State.prototype = {
         spark_bmd.dirty = true;
         this.spark_bmd = spark_bmd;
 
-        // Arrow tracer: a thin pale streak trailing the shaft in flight —
+        // Arrow tracer: a pale streak trailing the shaft in flight —
         // how you see your shot travel in the dark.
-        var streak_bmd = this.game.make.bitmapData(34, 3);
+        var streak_bmd = this.game.make.bitmapData(56, 4);
         var trctx = streak_bmd.context;
-        var trg = trctx.createLinearGradient(0, 0, 34, 0);
+        var trg = trctx.createLinearGradient(0, 0, 56, 0);
         trg.addColorStop(0, 'rgba(222,226,214,0)');
-        trg.addColorStop(1, 'rgba(230,234,222,0.75)');
+        trg.addColorStop(1, 'rgba(234,238,226,0.9)');
         trctx.fillStyle = trg;
-        trctx.fillRect(0, 0, 34, 3);
+        trctx.fillRect(0, 0, 56, 4);
         streak_bmd.dirty = true;
         this.tracer_bmd = streak_bmd;
 
@@ -308,7 +308,7 @@ Group_Survive_State.prototype = {
         // stamped into the atmosphere's decal layer separately. When the
         // impact direction is known the spray throws through the wound,
         // with a little backspatter toward the shooter.
-        var count = big ? 12 : 6;
+        var count = big ? 16 : 9;
         for (var i = 0; i < count; i++) {
             var sprite = this.game.add.sprite(x, y, this.blood_particle_bmd);
             sprite.anchor.set(0.5);
@@ -327,7 +327,7 @@ Group_Survive_State.prototype = {
                 sprite: sprite,
                 vx: Math.cos(angle) * speed,
                 vy: Math.sin(angle) * speed,
-                life: 0.25 + Math.random() * 0.3
+                life: 0.45 + Math.random() * 0.4
             });
         }
     },
@@ -374,16 +374,17 @@ Group_Survive_State.prototype = {
         flash.anchor.set(0.5);
         flash.blendMode = PIXI.blendModes.ADD;
         flash.alpha = 0.95;
-        this.add_effect(flash, 0.11, { grow: 0.7 });
+        flash.scale.set(1.5);
+        this.add_effect(flash, 0.18, { grow: 0.7 });
         // A brief lance of light thrown down the shot line.
         var lance = this.game.add.sprite(
             x + Math.cos(rotation) * 44, y + Math.sin(rotation) * 44, this.muzzle_flash_bmd);
         lance.anchor.set(0.5);
         lance.rotation = rotation;
-        lance.scale.set(2.3, 0.42);
+        lance.scale.set(3.1, 0.5);
         lance.blendMode = PIXI.blendModes.ADD;
-        lance.alpha = 0.6;
-        this.add_effect(lance, 0.09, { grow: 0.5 });
+        lance.alpha = 0.7;
+        this.add_effect(lance, 0.15, { grow: 0.5 });
         for (var i = 0; i < 3; i++) {
             var mote = this.game.add.sprite(tip_x, tip_y, this.spark_bmd);
             mote.anchor.set(0.5);
@@ -718,12 +719,16 @@ Group_Survive_State.prototype = {
         var ammo_rate = ammo_target > this.ammo_group.alpha ? 0.3 : 0.09;
         this.ammo_group.alpha += (ammo_target - this.ammo_group.alpha) * ammo_rate;
 
-        // Feed lines sink away after a few seconds but stay in
-        // displayed_messages until newer lines push them out.
-        for (var i = 0; i < this.displayed_messages.length; i++) {
+        // Feed lines are a moment, not a panel: they sink away fast and are
+        // gone from the world entirely once dark.
+        for (var i = this.displayed_messages.length - 1; i >= 0; i--) {
             var message = this.displayed_messages[i];
-            if (message.born_at !== undefined && now - message.born_at > 4500) {
-                message.alpha = Math.max(0, message.alpha - 0.012);
+            if (message.born_at !== undefined && now - message.born_at > 2600) {
+                message.alpha = Math.max(0, message.alpha - 0.03);
+                if (message.alpha <= 0) {
+                    message.destroy();
+                    this.displayed_messages.splice(i, 1);
+                }
             }
         }
 
@@ -826,14 +831,14 @@ Group_Survive_State.prototype = {
                 sprite.wobble_phase = Math.random() * Math.PI * 2;
                 sprite.heading = Math.random() * Math.PI * 2;
                 // Big enough to read by silhouette at street distance.
-                if (kind === 'walker') { sprite.scale.set(1.35); }
-                else if (kind === 'runner') { sprite.scale.set(1.25); }
-                else { sprite.scale.set(1.2); }
+                if (kind === 'walker') { sprite.scale.set(1.6); }
+                else if (kind === 'runner') { sprite.scale.set(1.45); }
+                else { sprite.scale.set(1.35); }
                 sprite.animations.add('move');
                 sprite.animations.play('move', self.zombie_anim_fps[kind] + Math.random() * 1.5, true);
                 sprite.eyes = self.game.add.sprite(zombie.x, zombie.y, self.zombie_eyes_bmd);
                 sprite.eyes.anchor.set(0.5);
-                sprite.eyes.alpha = 0.65;
+                sprite.eyes.alpha = 0.45; // the body should lead, the eyes accent
                 if (kind === 'crawler') { sprite.eyes.scale.set(0.8); }
                 self.zombie_eyes_group.add(sprite.eyes);
             }
@@ -1059,6 +1064,12 @@ Group_Survive_State.prototype = {
         }
 
         snapshot.events.forEach(function(event_text) {
+            // The reference frame carries no kill feed and no chat log. Only
+            // events a survivor would genuinely register break the silence —
+            // the rest is told by the world itself (gore, flare, screen).
+            if (/put one down|scavenged|patched up|stocked up|joined the group|left the group|respawn token was spent/.test(event_text)) {
+                return;
+            }
             self.display_new_message(event_text);
         });
     },
@@ -1070,7 +1081,7 @@ Group_Survive_State.prototype = {
     display_new_message: function(text) {
         // Grim, minimal feed: small dim serif lines, bottom-left, that
         // sink into the dark after a few seconds (see update_hud).
-        if (this.displayed_messages.length >= 5) {
+        if (this.displayed_messages.length >= 2) {
             var oldest = this.displayed_messages.shift();
             oldest.destroy();
         }
@@ -1084,6 +1095,7 @@ Group_Survive_State.prototype = {
         new_message.fixedToCamera = true;
         new_message.alpha = 0.8;
         new_message.born_at = this.game.time.now;
+        this.messages_shown_total = (this.messages_shown_total || 0) + 1;
         this.displayed_messages.push(new_message);
     }
 };

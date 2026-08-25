@@ -26,11 +26,12 @@ Main_Player = function (game, client) {
         left: Phaser.KeyCode.A,
         right: Phaser.KeyCode.D,
         fire: Phaser.KeyCode.SPACEBAR,
-        melee: Phaser.KeyCode.F
+        melee: Phaser.KeyCode.F,
+        swing: Phaser.KeyCode.V
     });
     game.input.keyboard.addKeyCapture([
         Phaser.KeyCode.W, Phaser.KeyCode.S, Phaser.KeyCode.A, Phaser.KeyCode.D,
-        Phaser.KeyCode.SPACEBAR, Phaser.KeyCode.F,
+        Phaser.KeyCode.SPACEBAR, Phaser.KeyCode.F, Phaser.KeyCode.V,
         Phaser.KeyCode.UP, Phaser.KeyCode.DOWN, Phaser.KeyCode.LEFT, Phaser.KeyCode.RIGHT
     ]);
 };
@@ -99,6 +100,10 @@ Main_Player.prototype.update = function() {
     if (this.keys.melee.isDown && now - this.last_melee_sent > 400) {
         this.last_melee_sent = now;
         this.client.send({ type: 'melee' });
+    }
+    if (this.keys.swing.isDown && now - this.last_melee_sent > 400) {
+        this.last_melee_sent = now;
+        this.client.send({ type: 'swing' });
     }
 
     // Report position ~20 times a second.
