@@ -610,7 +610,7 @@ Game_Server.prototype.start_wave = function() {
     for (var zi = 0; zi < this.zones.length; zi++) {
         if (this.zones[zi].overrun) { overrun_count += 1; }
     }
-    this.zombies_to_spawn = 6 + this.wave * 4 + overrun_count * ZONE_OVERRUN_WAVE_PENALTY;
+    this.zombies_to_spawn = 10 + this.wave * 5 + overrun_count * ZONE_OVERRUN_WAVE_PENALTY;
     this.events.push('Wave ' + this.wave + ' — they are coming...');
     // Death is sticky: a fallen survivor only gets back up if the group has
     // a respawn token to spend on them (a wipe replays the wave whole).
@@ -749,8 +749,9 @@ Game_Server.prototype.spawn_zombie = function() {
     }
     if (alive_players.length > 0 && Math.random() < 0.85) {
         var mark = alive_players[Math.floor(Math.random() * alive_players.length)];
-        x = clamp(mark.x + (Math.random() - 0.5) * 1000, 0, WORLD_WIDTH);
-        y = clamp(mark.y + (Math.random() - 0.5) * 1000, 0, WORLD_HEIGHT);
+        // Tight spread: the mass arrives together, not as stragglers.
+        x = clamp(mark.x + (Math.random() - 0.5) * 560, 0, WORLD_WIDTH);
+        y = clamp(mark.y + (Math.random() - 0.5) * 560, 0, WORLD_HEIGHT);
         // Snap to the nearest edge from that point.
         var d_left = x, d_right = WORLD_WIDTH - x, d_top = y, d_bottom = WORLD_HEIGHT - y;
         var m = Math.min(d_left, d_right, d_top, d_bottom);
@@ -824,7 +825,7 @@ Game_Server.prototype.tick = function(dt) {
         else if (this.zombies_to_spawn > 0) {
             this.spawn_accumulator += dt;
             // Pour the horde in fast enough that it masses up on screen.
-            if (this.spawn_accumulator >= 0.24) {
+            if (this.spawn_accumulator >= 0.15) {
                 this.spawn_accumulator = 0;
                 this.spawn_zombie();
                 this.zombies_to_spawn -= 1;

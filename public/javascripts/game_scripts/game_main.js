@@ -31,6 +31,11 @@ Group_Survive_State.prototype = {
         // Markers that must read even through the darkness mask: the supply
         // flare burns above it (that is what a flare is for).
         this.marker_group = this.game.add.group();
+        // Light-emitting combat effects (flash, lance, tracers, the swung
+        // axe, shove arcs) live here: raised ABOVE the darkness mask each
+        // frame, because they are light sources — a release flash that
+        // fires under the dark never strobes.
+        this.effects_group = this.game.add.group();
         this.main_player = new Main_Player(this.game, this.client);
         this.game.camera.follow(this.main_player.sprite);
         this.create_infection_overlay();
@@ -210,8 +215,9 @@ Group_Survive_State.prototype = {
         var flash_bmd = this.game.make.bitmapData(56, 56);
         var flctx = flash_bmd.context;
         var flg = flctx.createRadialGradient(28, 28, 1, 28, 28, 27);
-        flg.addColorStop(0, 'rgba(255,244,215,1)');
-        flg.addColorStop(0.3, 'rgba(255,220,160,0.6)');
+        flg.addColorStop(0, 'rgba(255,255,255,1)');
+        flg.addColorStop(0.16, 'rgba(255,248,228,0.95)');
+        flg.addColorStop(0.4, 'rgba(255,220,160,0.55)');
         flg.addColorStop(1, 'rgba(255,195,115,0)');
         flctx.fillStyle = flg;
         flctx.fillRect(0, 0, 56, 56);
@@ -412,6 +418,7 @@ Group_Survive_State.prototype = {
         flash.blendMode = PIXI.blendModes.ADD;
         flash.alpha = 0.95;
         flash.scale.set(1.5);
+        this.effects_group.add(flash);
         this.add_effect(flash, 0.18, { grow: 0.7 });
         // A brief lance of light thrown down the shot line.
         var lance = this.game.add.sprite(
@@ -421,6 +428,7 @@ Group_Survive_State.prototype = {
         lance.scale.set(3.1, 0.5);
         lance.blendMode = PIXI.blendModes.ADD;
         lance.alpha = 0.7;
+        this.effects_group.add(lance);
         this.add_effect(lance, 0.15, { grow: 0.5 });
         for (var i = 0; i < 3; i++) {
             var mote = this.game.add.sprite(tip_x, tip_y, this.spark_bmd);
@@ -448,15 +456,18 @@ Group_Survive_State.prototype = {
         arc.rotation = rotation;
         arc.alpha = connected ? 0.9 : 0.55;
         if (swing) { arc.tint = 0xd8b48a; } // the killing swing runs warmer
+        this.effects_group.add(arc);
         this.add_effect(arc, swing ? 0.4 : 0.28, { grow: 0.5 });
         if (swing) {
             // The axe itself, swept through the arc — a weapon in hands,
             // not an abstract gesture. Sweeps ~120 degrees over its life.
             var axe = this.game.add.sprite(x, y, this.axe_bmd);
             axe.anchor.set(0.1, 0.5);
+            axe.scale.set(1.45);
             axe.rotation = rotation - 1.05;
             axe.sweep_from = rotation - 1.05;
             axe.sweep_to = rotation + 1.05;
+            this.effects_group.add(axe);
             this.add_effect(axe, 0.4, { sweep: true });
             if (connected) {
                 this.spawn_blood_burst(
@@ -957,6 +968,7 @@ Group_Survive_State.prototype = {
                 var streak = self.game.add.sprite(projectile.x, projectile.y, self.tracer_bmd);
                 streak.anchor.set(1, 0.5);
                 streak.alpha = 0.55;
+                self.effects_group.add(streak);
                 var sprite = self.game.add.sprite(projectile.x, projectile.y, 'arrow');
                 sprite.anchor.set(0.5);
                 sprite.rotation = projectile.rotation;

@@ -1136,6 +1136,9 @@ Atmosphere.prototype.raise_overlays = function() {
     // The moonlight silhouette tracing sits just above the darkness so the
     // world's big shapes stay legible even where no light reaches.
     if (this.silhouette_sprite) { world.bringToTop(this.silhouette_sprite); }
+    // Combat light (flashes, tracers, the swung axe) burns above the dark —
+    // these ARE light sources, and a release must strobe against black.
+    if (this.state.effects_group) { world.bringToTop(this.state.effects_group); }
     // Eye-shine floats above the darkness: pairs of pale eyes are how you
     // read the horde where no light reaches.
     if (this.state.zombie_eyes_group) { world.bringToTop(this.state.zombie_eyes_group); }

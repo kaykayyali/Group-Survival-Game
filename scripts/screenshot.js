@@ -34,7 +34,7 @@ var CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-l
 
   // Wait into the first wave, then fight: aim at the nearest zombie and shoot.
   await page.waitForTimeout(8000);
-  var deadline = Date.now() + 14000;
+  var deadline = Date.now() + 20000;
   var actionTaken = false;
   while (Date.now() < deadline) {
     var st = await page.evaluate(function() {
@@ -62,9 +62,14 @@ var CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-l
           // at window size), so world-to-screen is just camera-relative.
           var sx = Math.min(box.width - 5, Math.max(5, z.x - st.cam.x));
           var sy = Math.min(box.height - 5, Math.max(5, z.y - st.cam.y));
+          var packed = 0;
+          st.snap.zombies.forEach(function(z2) {
+            var d2 = (z2.x - me.x) * (z2.x - me.x) + (z2.y - me.y) * (z2.y - me.y);
+            if (d2 < 460 * 460) { packed += 1; }
+          });
           await page.mouse.move(box.x + sx, box.y + sy);
           await page.keyboard.down('Space');
-          if (!actionTaken && best < 350 * 350) {
+          if (!actionTaken && best < 350 * 350 && packed >= 4) {
             // Catch the release itself: flash, lance and tracer live for a
             // fraction of a second — shoot the frame inside that window.
             actionTaken = true;
