@@ -695,6 +695,19 @@ Group_Survive_State.prototype = {
     },
     apply_snapshot: function(snapshot) {
         // Snapshots arrive off the game loop; defer rendering to update().
+        // Two snapshots can land between frames — the one-shot feeds
+        // (events, gore, combat) from the older one must be carried
+        // forward, not silently dropped with it.
+        var pending = this.pending_snapshot;
+        if (pending) {
+            var feeds = ['events', 'shots', 'shoves', 'hits', 'deaths'];
+            for (var i = 0; i < feeds.length; i++) {
+                var feed = feeds[i];
+                if (pending[feed] && pending[feed].length) {
+                    snapshot[feed] = pending[feed].concat(snapshot[feed] || []);
+                }
+            }
+        }
         this.pending_snapshot = snapshot;
     },
     render_snapshot: function(snapshot) {
@@ -866,9 +879,15 @@ Group_Survive_State.prototype = {
             }
             this.supply_flare.x = drop.x;
             this.supply_flare.y = drop.y;
-            if (drop.state === 'landed' && !this.crate_sprite) {
-                this.crate_sprite = this.game.add.sprite(drop.x, drop.y, this.crate_bmd);
-                this.crate_sprite.anchor.set(0.5);
+            if (drop.state === 'landed') {
+                if (!this.crate_sprite) {
+                    this.crate_sprite = this.game.add.sprite(drop.x, drop.y, this.crate_bmd);
+                    this.crate_sprite.anchor.set(0.5);
+                }
+                // Track the drop's position: if the null between two drops
+                // slipped past us, the old sprite must move to the new crate.
+                this.crate_sprite.x = drop.x;
+                this.crate_sprite.y = drop.y;
             }
         }
         else {

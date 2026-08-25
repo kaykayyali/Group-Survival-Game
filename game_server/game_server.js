@@ -173,10 +173,14 @@ function Game_Server() {
     this.next_id = 1;
     this.wave = 0;
     this.zombies_to_spawn = 0;
-    this.intermission_until = Date.now() + WAVE_INTERMISSION_MS;
+    // Armed by the wave logic once someone is actually playing — arming it
+    // at boot would let it expire while the server sits empty and dump
+    // wave 1 on the first player the instant they join.
+    this.intermission_until = null;
     this.spawn_accumulator = 0;
     this.kills = 0;             // group total; every KILLS_PER_TOKEN earns a token
     this.respawn_tokens = 0;
+    this.last_drop_wave = 0;    // the wave whose start last called in the helicopter
     this.force_revive_all = false; // set on a group wipe: the replayed wave starts whole
     this.supply_drop = null;    // {x,y,state:'incoming'|'landed',lands_at,expires,claimed}
     this.barricades = {};       // id -> {id,x,y,rotation,hp,max_hp}
@@ -228,17 +232,24 @@ Game_Server.prototype.handle_message = function(id, message) {
     var player = this.players[id];
     switch (message.type) {
         case 'join':
-            this.spawn_player(id, message.name);
+            // One player per connection; a repeat join must not respawn or
+            // reset an existing player mid-game.
+            if (!player) {
+                this.spawn_player(id, message.name);
+            }
             break;
         case 'move':
             if (player && player.alive) {
                 var now = Date.now();
                 var dt = Math.min(0.5, (now - (player.last_move_time || now)) / 1000);
                 player.last_move_time = now;
-                // Movement stays server-validated: cap displacement to what the
-                // player speed allows for the elapsed time (with a little slack
-                // for network jitter).
-                var max_step = Math.max(20, PLAYER_SPEED * dt * 1.5);
+                // Movement stays server-validated with a distance allowance
+                // that accrues with real elapsed time (slack for jitter) and
+                // is spent by actual displacement. A fixed per-message floor
+                // would let a spammed message stream teleport the player.
+                player.move_allowance = Math.min(60,
+                    (player.move_allowance || 0) + PLAYER_SPEED * dt * 1.25);
+                var max_step = player.move_allowance;
                 var target_x = clamp(Number(message.x) || 0, 0, WORLD_WIDTH);
                 var target_y = clamp(Number(message.y) || 0, 0, WORLD_HEIGHT);
                 var dx = target_x - player.x;
@@ -250,6 +261,10 @@ Game_Server.prototype.handle_message = function(id, message) {
                     target_y = player.y + dy * scale;
                 }
                 var resolved = collide_circle_obstacles(target_x, target_y, PLAYER_RADIUS);
+                var spent_x = resolved.x - player.x;
+                var spent_y = resolved.y - player.y;
+                player.move_allowance = Math.max(0,
+                    player.move_allowance - Math.sqrt(spent_x * spent_x + spent_y * spent_y));
                 player.x = resolved.x;
                 player.y = resolved.y;
                 // Reject non-finite rotation: Infinity/NaN would flow through
@@ -306,6 +321,8 @@ Game_Server.prototype.spawn_player = function(id, name) {
         ammo: PLAYER_START_AMMO,
         alive: true,
         last_melee: 0,
+        last_shot: 0,
+        move_allowance: 40,
         stamina: STAMINA_MAX,
         boards: PLAYER_START_BOARDS,
         last_barricade: 0,
@@ -333,6 +350,14 @@ Game_Server.prototype.player_shoot = function(player) {
     if (player.ammo <= 0) {
         return;
     }
+    // The bow's draw time is authoritative here, not in the client's input
+    // handler — a hostile client spamming shoot messages must not turn a
+    // bow into a machine gun.
+    var now = Date.now();
+    if (now - (player.last_shot || 0) < 240) {
+        return;
+    }
+    player.last_shot = now;
     player.ammo -= 1;
     var pid = 'a' + (this.next_id++);
     this.projectiles[pid] = {
@@ -515,7 +540,9 @@ Game_Server.prototype.spawn_pickup = function(x, y) {
         id: id,
         x: clamp(x, 40, WORLD_WIDTH - 40),
         y: clamp(y, 40, WORLD_HEIGHT - 40),
-        kind: Math.random() < 0.6 ? 'ammo' : 'health'
+        kind: Math.random() < 0.6 ? 'ammo' : 'health',
+        // Unclaimed drops rot away rather than accumulating forever.
+        expires: Date.now() + 45000
     };
 };
 
@@ -545,9 +572,16 @@ Game_Server.prototype.start_wave = function() {
         }
     }
     this.force_revive_all = false;
-    // The helicopter comes after every SUPPLY_DROP_EVERY_WAVES-th wave:
-    // resupply is an event you fight toward, not litter on the ground.
-    if (this.wave % SUPPLY_DROP_EVERY_WAVES === 0 && !this.supply_drop) {
+    // The helicopter comes early once (wave 2, so a young group actually
+    // sees a drop) and then every SUPPLY_DROP_EVERY_WAVES waves after the
+    // last one: resupply is an event you fight toward, not litter. Tracking
+    // the last drop's wave keeps a skipped or lingering crate from silently
+    // cancelling all future drops.
+    var due = this.last_drop_wave === 0
+        ? this.wave >= 2
+        : this.wave - this.last_drop_wave >= SUPPLY_DROP_EVERY_WAVES;
+    if (due && !this.supply_drop) {
+        this.last_drop_wave = this.wave;
         this.schedule_supply_drop();
     }
 };
@@ -588,7 +622,13 @@ Game_Server.prototype.tick_supply_drop = function(now) {
     var all_claimed = true;
     for (var pid in this.players) {
         var player = this.players[pid];
-        if (!player.alive) { continue; }
+        if (!player.alive) {
+            // A downed survivor hasn't claimed: the crate must wait for
+            // them (they may be revived while it still sits there) rather
+            // than be declared picked clean over their body.
+            if (!drop.claimed[pid]) { all_claimed = false; }
+            continue;
+        }
         if (drop.claimed[pid]) { continue; }
         var dx = player.x - drop.x;
         var dy = player.y - drop.y;
@@ -691,8 +731,12 @@ Game_Server.prototype.tick = function(dt) {
             zombies_alive = 0;
             this.wave = Math.max(0, this.wave - 1);
             this.intermission_until = now + WAVE_INTERMISSION_MS;
-            this.force_revive_all = true; // the replayed wave starts whole, tokens untouched
-            this.events.push('The whole group went down. The horde moves on... try that wave again.');
+            this.force_revive_all = true; // the replayed wave starts whole...
+            // ...but a wipe cannot be cheaper than a single death: the
+            // group's earned tokens and token progress are gone with them.
+            this.respawn_tokens = 0;
+            this.kills = this.kills - (this.kills % KILLS_PER_TOKEN);
+            this.events.push('The whole group went down. Every earned respawn is lost with them.');
         }
         if (this.zombies_to_spawn === 0 && zombies_alive === 0) {
             if (!this.intermission_until) {
@@ -884,33 +928,51 @@ Game_Server.prototype.separate_zombies = function() {
 Game_Server.prototype.tick_projectiles = function(dt, now) {
     for (var id in this.projectiles) {
         var projectile = this.projectiles[id];
-        projectile.x += projectile.vx * dt;
-        projectile.y += projectile.vy * dt;
-        if (now >= projectile.expires ||
-            projectile.x < 0 || projectile.x > WORLD_WIDTH ||
-            projectile.y < 0 || projectile.y > WORLD_HEIGHT ||
-            point_blocked(projectile.x, projectile.y)) {
-            // Walls and wrecks stop arrows dead.
+        if (now >= projectile.expires) {
             delete this.projectiles[id];
             continue;
         }
-        for (var zid in this.zombies) {
-            var zombie = this.zombies[zid];
-            var dx = zombie.x - projectile.x;
-            var dy = zombie.y - projectile.y;
-            if (dx * dx + dy * dy <= PROJECTILE_HIT_RADIUS * PROJECTILE_HIT_RADIUS) {
-                var owner = this.players[projectile.owner] || { name: 'Someone' };
-                this.damage_zombie(zombie, PROJECTILE_DAMAGE, owner, projectile.rotation);
-                delete this.projectiles[id];
+        // A tick moves an arrow ~30px — enough to tunnel straight through a
+        // crawler or a barricade. Integrate in sub-steps small enough that
+        // nothing fits between two consecutive positions.
+        var step_count = Math.max(1, Math.ceil((PROJECTILE_SPEED * dt) / 12));
+        var removed = false;
+        for (var s = 0; s < step_count && !removed; s++) {
+            projectile.x += projectile.vx * (dt / step_count);
+            projectile.y += projectile.vy * (dt / step_count);
+            if (projectile.x < 0 || projectile.x > WORLD_WIDTH ||
+                projectile.y < 0 || projectile.y > WORLD_HEIGHT ||
+                point_blocked(projectile.x, projectile.y)) {
+                // Walls and wrecks stop arrows dead.
+                removed = true;
                 break;
             }
+            for (var zid in this.zombies) {
+                var zombie = this.zombies[zid];
+                var dx = zombie.x - projectile.x;
+                var dy = zombie.y - projectile.y;
+                if (dx * dx + dy * dy <= PROJECTILE_HIT_RADIUS * PROJECTILE_HIT_RADIUS) {
+                    var owner = this.players[projectile.owner] || { name: 'Someone' };
+                    this.damage_zombie(zombie, PROJECTILE_DAMAGE, owner, projectile.rotation);
+                    removed = true;
+                    break;
+                }
+            }
+        }
+        if (removed) {
+            delete this.projectiles[id];
         }
     }
 };
 
 Game_Server.prototype.tick_pickups = function() {
+    var now = Date.now();
     for (var id in this.pickups) {
         var pickup = this.pickups[id];
+        if (pickup.expires && now >= pickup.expires) {
+            delete this.pickups[id];
+            continue;
+        }
         for (var pid in this.players) {
             var player = this.players[pid];
             if (!player.alive) { continue; }

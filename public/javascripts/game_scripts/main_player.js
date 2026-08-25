@@ -41,6 +41,20 @@ Main_Player.prototype.apply_server_state = function(state) {
     if (!state.alive) {
         this.sprite.body.velocity.set(0);
     }
+    // Reconcile with the authority: when the server's position disagrees
+    // beyond jitter (it rate-limits and collides movement), pull the local
+    // sprite toward it instead of letting the two realities drift apart.
+    var dx = state.x - this.sprite.x;
+    var dy = state.y - this.sprite.y;
+    var d2 = dx * dx + dy * dy;
+    if (d2 > 120 * 120) {
+        this.sprite.x = state.x;
+        this.sprite.y = state.y;
+    }
+    else if (d2 > 40 * 40) {
+        this.sprite.x += dx * 0.25;
+        this.sprite.y += dy * 0.25;
+    }
 };
 
 Main_Player.prototype.update = function() {
