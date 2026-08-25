@@ -448,23 +448,16 @@ Group_Survive_State.prototype = {
         // (atmosphere reads last_shot).
         var tip_x = x + Math.cos(rotation) * 20;
         var tip_y = y + Math.sin(rotation) * 20;
+        // A bow, not a gun: one soft snap of light at the string and dust
+        // motes — no muzzle streak. (The old forward "lance" read as a
+        // bullet flying alongside the arrow.)
         var flash = this.game.add.sprite(tip_x, tip_y, this.muzzle_flash_bmd);
         flash.anchor.set(0.5);
         flash.blendMode = PIXI.blendModes.ADD;
-        flash.alpha = 0.95;
-        flash.scale.set(1.5);
+        flash.alpha = 0.8;
+        flash.scale.set(0.9);
         this.effects_group.add(flash);
-        this.add_effect(flash, 0.18, { grow: 0.7 });
-        // A brief lance of light thrown down the shot line.
-        var lance = this.game.add.sprite(
-            x + Math.cos(rotation) * 44, y + Math.sin(rotation) * 44, this.muzzle_flash_bmd);
-        lance.anchor.set(0.5);
-        lance.rotation = rotation;
-        lance.scale.set(3.1, 0.5);
-        lance.blendMode = PIXI.blendModes.ADD;
-        lance.alpha = 0.7;
-        this.effects_group.add(lance);
-        this.add_effect(lance, 0.15, { grow: 0.5 });
+        this.add_effect(flash, 0.12, { grow: 0.5 });
         for (var i = 0; i < 3; i++) {
             var mote = this.game.add.sprite(tip_x, tip_y, this.spark_bmd);
             mote.anchor.set(0.5);
@@ -1043,9 +1036,21 @@ Group_Survive_State.prototype = {
             seen[pickup.id] = true;
             var sprite = self.pickup_sprites[pickup.id];
             if (!sprite) {
-                var texture = pickup.kind === 'ammo' ? self.ammo_texture : self.health_texture;
-                sprite = self.pickup_sprites[pickup.id] = self.game.add.sprite(pickup.x, pickup.y, texture);
-                sprite.anchor.set(0.5);
+                if (pickup.kind === 'arrow') {
+                    // A spent arrow stuck in the ground where it landed.
+                    sprite = self.game.add.sprite(pickup.x, pickup.y, 'arrow');
+                    sprite.anchor.set(0.5);
+                    sprite.scale.set(0.45);
+                    sprite.rotation = (pickup.x * 7 + pickup.y * 13) % 628 / 100; // stable pseudo-random lie
+                    sprite.tint = 0x9a917d;
+                    sprite.alpha = 0.9;
+                }
+                else {
+                    var texture = pickup.kind === 'ammo' ? self.ammo_texture : self.health_texture;
+                    sprite = self.game.add.sprite(pickup.x, pickup.y, texture);
+                    sprite.anchor.set(0.5);
+                }
+                self.pickup_sprites[pickup.id] = sprite;
             }
         });
         prune(this.pickup_sprites, seen, function(sprite) { sprite.destroy(); });
