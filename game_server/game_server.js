@@ -426,8 +426,11 @@ Game_Server.prototype.player_shoot = function(player) {
 Game_Server.prototype.player_melee = function(player, mode) {
     var swing = mode === 'swing';
     var now = Date.now();
-    var cooldown = swing ? 950 : MELEE_COOLDOWN_MS;
-    var cost = swing ? 38 : 22;
+    var cooldown = swing ? 780 : MELEE_COOLDOWN_MS;
+    // Melee must be a survivable fallback, not a death sentence: two
+    // swings put down a fresh walker, and the stamina pool sustains a
+    // fight instead of stranding an empty-quivered survivor.
+    var cost = swing ? 28 : 18;
     if (now - player.last_melee < cooldown) {
         return;
     }
@@ -438,8 +441,8 @@ Game_Server.prototype.player_melee = function(player, mode) {
     player.stamina -= cost;
     player.last_melee = now;
     var half_arc = swing ? 0.6 : 1.05;
-    var damage = swing ? 40 : 6;
-    var knockback = swing ? 24 : MELEE_KNOCKBACK;
+    var damage = swing ? 55 : 6;
+    var knockback = swing ? 24 : 85;
     var connected = 0;
     for (var zid in this.zombies) {
         var zombie = this.zombies[zid];
@@ -583,6 +586,23 @@ Game_Server.prototype.damage_zombie = function(zombie, amount, player, dir) {
     else if (this.hits.length < 40) {
         this.hits.push({ x: Math.round(zombie.x), y: Math.round(zombie.y), id: zombie.id, dir: impact_dir });
     }
+};
+
+// A missed arrow sticks in the world as a one-arrow pickup where it came
+// to rest (nudged out of any wall it hit). Scavenging your own misses is
+// the difference between scarcity and a death spiral.
+Game_Server.prototype.drop_spent_arrow = function(x, y) {
+    x = clamp(x, 20, WORLD_WIDTH - 20);
+    y = clamp(y, 20, WORLD_HEIGHT - 20);
+    var freed = collide_circle_obstacles(x, y, 10);
+    var id = 'k' + (this.next_id++);
+    this.pickups[id] = {
+        id: id,
+        x: Math.round(freed.x),
+        y: Math.round(freed.y),
+        kind: 'arrow',
+        expires: Date.now() + 60000
+    };
 };
 
 Game_Server.prototype.spawn_pickup = function(x, y) {
@@ -1094,6 +1114,7 @@ Game_Server.prototype.tick_projectiles = function(dt, now) {
     for (var id in this.projectiles) {
         var projectile = this.projectiles[id];
         if (now >= projectile.expires) {
+            this.drop_spent_arrow(projectile.x, projectile.y);
             delete this.projectiles[id];
             continue;
         }
@@ -1108,7 +1129,10 @@ Game_Server.prototype.tick_projectiles = function(dt, now) {
             if (projectile.x < 0 || projectile.x > WORLD_WIDTH ||
                 projectile.y < 0 || projectile.y > WORLD_HEIGHT ||
                 point_blocked(projectile.x, projectile.y)) {
-                // Walls and wrecks stop arrows dead.
+                // Walls and wrecks stop arrows dead — and an arrow that
+                // misses is not gone: it sticks where it landed, waiting to
+                // be pulled back out. Only arrows that find flesh break.
+                this.drop_spent_arrow(projectile.x, projectile.y);
                 removed = true;
                 break;
             }
@@ -1144,7 +1168,11 @@ Game_Server.prototype.tick_pickups = function() {
             var dx = player.x - pickup.x;
             var dy = player.y - pickup.y;
             if (dx * dx + dy * dy <= 30 * 30) {
-                if (pickup.kind === 'ammo') {
+                if (pickup.kind === 'arrow') {
+                    // A single arrow pulled back out of the dirt — silent.
+                    player.ammo += 1;
+                }
+                else if (pickup.kind === 'ammo') {
                     player.ammo += 10;
                     this.events.push(player.name + ' scavenged arrows.');
                 }
